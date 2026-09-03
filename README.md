@@ -152,9 +152,9 @@ Excel и общей библиотеки шаблонов организации
 сборки на стороне хостинга.
 
 **GitHub Pages** публикуется из `dist` через `.github/workflows/pages.yml` при
-каждом пуше в `main` — <https://bashmakak.github.io/sdelkospar/>. Workflow
-включает Pages сам (`enablement: true`), заходить в настройки репозитория
-руками не нужно.
+каждом пуше в `main` — <https://bashmakak.github.io/sdelkospar/>. Один раз надо
+зайти в Settings → Pages → Source и выбрать **GitHub Actions**: включить Pages
+самим workflow нельзя, токену Actions это не разрешено.
 
 **Render:** New → Static Site, подключить репозиторий, Publish Directory —
 `dist`, Build Command оставить пустым. Настройки уже описаны в `render.yaml`.

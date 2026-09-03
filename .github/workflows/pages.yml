@@ -4,8 +4,10 @@
 # лежит в dist/. Поэтому публикуем через Actions: так каталог может быть любым
 # и в репозитории не появляется второй копии файла на полмегабайта.
 #
-# enablement: true включает Pages при первом запуске — заходить в настройки
-# репозитория руками не нужно.
+# Один раз в настройках репозитория: Settings → Pages → Source → GitHub Actions.
+# Включить их самим workflow (configure-pages с enablement: true) не выходит:
+# токену Actions не разрешено создавать Pages-сайт, попытка падает с
+# «Resource not accessible by integration».
 name: Deploy to GitHub Pages
 
 on:
@@ -31,8 +33,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
