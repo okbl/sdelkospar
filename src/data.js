@@ -120,6 +120,83 @@
       String(kop).padStart(2, '0') + ' ' + plural(kop, 'копейка', 'копейки', 'копеек');
   }
 
+  /* ---------- родительный падеж ФИО ----------
+   * «Финансовый управляющий имуществом должника Абрамовой Зарият Руслановны» —
+   * так пишут во всех шапках. Из печатной формы эта строка приходит готовой,
+   * а для дела, заведённого руками, склоняем сами по типовым окончаниям.
+   * Правила покрывают обычные русские ФИО и заведомо не покрывают всё:
+   * поле остаётся редактируемым, и это осознанный размен.
+   */
+  const FEM = /(?:а|я)$/;
+
+  // Беглые гласные правилами не выводятся — их всего несколько, перечислим.
+  const IRREGULAR = { 'пётр': 'Петра', 'петр': 'Петра', 'лев': 'Льва', 'павел': 'Павла' };
+
+  function genWord(w, isFemale, kind) {
+    if (!w) return w;
+    const low = w.toLowerCase();
+    const end = (n, tail) => w.slice(0, w.length - n) + tail;
+
+    if (kind === 'patronymic') {
+      if (/(ович|евич|ьич|ич)$/.test(low)) return w + 'а';
+      if (/(овна|евна|ична|инична)$/.test(low)) return end(1, 'ы');
+    }
+
+    // Фамилии склоняются иначе, чем имена: «Королева» → «Королевой», но
+    // «Екатерина» → «Екатерины». Поэтому правила разведены по роли слова.
+    if (kind === 'surname') {
+      if (/(ов|ев|ёв|ин|ын)а$/.test(low)) return end(1, 'ой');
+      if (/ая$/.test(low)) return end(2, 'ой');
+      if (/(ов|ев|ёв|ин|ын)$/.test(low)) return w + 'а';
+      if (/(ский|цкий|ий|ый)$/.test(low)) return end(2, 'ого');
+      if (/(ко|ых|их)$/.test(low)) return w;
+    }
+
+    if (kind === 'name' && IRREGULAR[low] && !isFemale) return IRREGULAR[low];
+    if (/ь$/.test(low)) return end(1, isFemale ? 'и' : 'я');
+    if (/я$/.test(low)) return end(1, 'и');
+    if (/(жа|ча|ша|ща|га|ка|ха)$/.test(low)) return end(1, 'и');
+    if (/а$/.test(low)) return end(1, 'ы');
+    if (/й$/.test(low)) return end(1, 'я');
+    if (/[оеиуыэю]$/.test(low)) return w;          // несклоняемые
+    return isFemale ? w : w + 'а';                  // мужское на согласную
+  }
+
+  // Организационно-правовая форма склоняется, собственное имя в кавычках — нет.
+  // Аббревиатуры (ООО, АО, ПАО) не склоняются вовсе.
+  const ORG_FORMS = [
+    ['Общество с ограниченной ответственностью', 'Общества с ограниченной ответственностью'],
+    ['Публичное акционерное общество', 'Публичного акционерного общества'],
+    ['Непубличное акционерное общество', 'Непубличного акционерного общества'],
+    ['Закрытое акционерное общество', 'Закрытого акционерного общества'],
+    ['Открытое акционерное общество', 'Открытого акционерного общества'],
+    ['Акционерное общество', 'Акционерного общества'],
+    ['Индивидуальный предприниматель', 'Индивидуального предпринимателя'],
+    ['Товарищество с ограниченной ответственностью', 'Товарищества с ограниченной ответственностью'],
+    ['Крестьянское (фермерское) хозяйство', 'Крестьянского (фермерского) хозяйства']
+  ];
+
+  /** «Общество с ограниченной ответственностью «Ромашка»» → «Общества …». */
+  function genitiveOrg(name) {
+    const s = String(name || '').trim();
+    for (const [from, to] of ORG_FORMS) {
+      if (s.toLowerCase().startsWith(from.toLowerCase())) return to + s.slice(from.length);
+    }
+    return s;
+  }
+
+  /** «Абрамова Зарият Руслановна» → «Абрамовой Зарият Руслановны». */
+  function genitiveFio(fio) {
+    const parts = String(fio || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '';
+    // Пол определяем по отчеству — оно надёжнее фамилии.
+    const isFemale = parts.length > 2
+      ? /(овна|евна|ична|инична)$/i.test(parts[2])
+      : FEM.test(parts[0]);
+    return parts.map((w, i) =>
+      genWord(w, isFemale, i === 2 ? 'patronymic' : i === 0 ? 'surname' : 'name')).join(' ');
+  }
+
   /* ================= справочники ================= */
 
   const DEAL_TYPES = [
@@ -219,6 +296,61 @@
   const REALTY_KINDS = ['Земельный участок', 'Жилой дом', 'Квартира', 'Комната',
     'Нежилое помещение', 'Здание', 'Сооружение', 'Машино-место', 'Объект незавершённого строительства'];
 
+  /* ================= государственная пошлина ================= */
+  /*
+   * Ставки статьи 333.21 НК РФ в редакции с 09.09.2024. Держим их данными,
+   * а не формулой в коде: ставки меняются законом, и править их должно быть
+   * можно, не разбираясь в остальном приложении.
+   *
+   * Шкала проверена по четырём заявлениям из практики пользователя —
+   * расчёт сходится до копейки, см. test/run.mjs.
+   */
+  const FEE_SCALES = {
+    org: {
+      name: 'организация',
+      steps: [
+        { over: 0, base: 10000, rate: 0 },
+        { over: 100000, base: 10000, rate: 0.05 },
+        { over: 1000000, base: 55000, rate: 0.03 },
+        { over: 10000000, base: 325000, rate: 0.01 },
+        { over: 50000000, base: 725000, rate: 0.005 }
+      ],
+      cap: 10000000
+    },
+    person: {
+      name: 'физическое лицо',
+      steps: [
+        { over: 0, base: 4000, rate: 0 },
+        { over: 100000, base: 4000, rate: 0.03 },
+        { over: 1000000, base: 31000, rate: 0.02 },
+        { over: 10000000, base: 211000, rate: 0.01 },
+        { over: 50000000, base: 611000, rate: 0.005 }
+      ],
+      cap: 10000000
+    }
+  };
+
+  // Подпункт 2 пункта 1 статьи 333.21 НК РФ — спор о признании сделки
+  // недействительной сам по себе, независимо от цены иска.
+  const FEE_INVALIDATION = { person: 15000, org: 50000 };
+
+  // Подпункт 9 пункта 1 статьи 333.21 НК РФ: по обособленным спорам в деле
+  // о банкротстве платится половина.
+  const FEE_BANKRUPTCY_SHARE = 0.5;
+
+  /** Пошлина по цене иска: имущественное требование, подлежащее оценке. */
+  function feeByValue(amount, kind) {
+    const scale = FEE_SCALES[kind] || FEE_SCALES.org;
+    const v = Number(amount);
+    if (!isFinite(v) || v <= 0) return { sum: 0, step: scale.steps[0] };
+    let step = scale.steps[0];
+    for (const s of scale.steps) if (v > s.over) step = s;
+    const sum = Math.min(step.base + step.rate * (v - step.over), scale.cap);
+    // До копеек считает закон, но в платёжку идут целые рубли — и именно
+    // так посчитаны заявления, по которым сверялась формула.
+    return { sum: Math.round(sum), step: step, raw: sum };
+  }
+
   /* ================= реестр переменных ================= */
   /*
    * Единый реестр (§24). Кнопка «Вставить переменную» в редакторе блоков
@@ -235,22 +367,31 @@
         { name: 'PROCEDURE_DATE', label: 'Дата введения процедуры' },
         { name: 'JUDICIAL_ACT', label: 'Реквизиты судебного акта' },
         { name: 'MANAGER_ROLE', label: 'Статус управляющего' },
+        { name: 'MANAGER_TITLE', label: 'Заявитель: статус и должник' },
         { name: 'MANAGER_ROLE_GEN', label: 'Статус управляющего (род. падеж)' },
         { name: 'MANAGER_ROLE_INS', label: 'Статус управляющего (твор. падеж)' },
         { name: 'MANAGER_NAME', label: 'ФИО управляющего' },
         { name: 'MANAGER_ADDRESS', label: 'Адрес управляющего' },
         { name: 'MANAGER_CONTACTS', label: 'Контакты управляющего' },
-        { name: 'MANAGER_SRO', label: 'СРО' }
+        { name: 'MANAGER_SRO', label: 'СРО' },
+        { name: 'MANAGER_INN', label: 'ИНН управляющего' },
+        { name: 'MANAGER_SNILS', label: 'СНИЛС управляющего' },
+        { name: 'MANAGER_REG_NUMBER', label: 'Регистрационный номер управляющего' }
       ]
     },
     {
       group: 'Должник', items: [
         { name: 'DEBTOR_NAME', label: 'Наименование / ФИО' },
+        { name: 'DEBTOR_NAME_GEN', label: 'ФИО должника в родительном падеже' },
         { name: 'DEBTOR_SHORT', label: 'Краткое наименование' },
         { name: 'DEBTOR_INN', label: 'ИНН' },
         { name: 'DEBTOR_OGRN', label: 'ОГРН / ОГРНИП' },
         { name: 'DEBTOR_ADDRESS', label: 'Адрес' },
-        { name: 'DEBTOR_REQUISITES', label: 'Реквизиты одной строкой' }
+        { name: 'DEBTOR_REQUISITES', label: 'Реквизиты одной строкой' },
+        { name: 'DEBTOR_BIRTH_DATE', label: 'Дата рождения' },
+        { name: 'DEBTOR_BIRTH_PLACE', label: 'Место рождения' },
+        { name: 'DEBTOR_SNILS', label: 'СНИЛС' },
+        { name: 'DEBTOR_PASSPORT_BLOCK', label: 'Реквизиты гражданина в скобках' }
       ]
     },
     {
@@ -319,7 +460,22 @@
         { name: 'AWARENESS_NOTE', label: 'Осведомлённость контрагента' },
         { name: 'CIRCUMSTANCES', label: 'Дополнительные обстоятельства' },
         { name: 'CREDITORS_SUM', label: 'Размер требований кредиторов' },
+        { name: 'CLAIM_PRICE', label: 'Цена иска' },
+        { name: 'FEE_AMOUNT', label: 'Государственная пошлина' },
+        { name: 'FEE_WORDS', label: 'Государственная пошлина прописью' },
+        { name: 'FEE_CALC', label: 'Расчёт государственной пошлины' },
         { name: 'CASE_START_DATE', label: 'Дата возбуждения дела о банкротстве' }
+      ]
+    },
+    {
+      group: 'Кредитный отчёт', items: [
+        { name: 'OKB_REPORT_DATE', label: 'Дата кредитного отчёта' },
+        { name: 'OKB_CREDITORS', label: 'Число обязательств в отчёте' },
+        { name: 'OKB_FIRST_OVERDUE_DATE', label: 'Дата первой непогашенной просрочки' },
+        { name: 'OKB_FIRST_OVERDUE_CREDITOR', label: 'Кредитор по первой просрочке' },
+        { name: 'OKB_OVERDUE_SUM', label: 'Просрочено на дату сделки' },
+        { name: 'OKB_OVERDUE_COUNT', label: 'По скольким обязательствам просрочка' },
+        { name: 'OKB_OVERDUE_TOTAL_WORDS', label: 'Просрочено прописью' }
       ]
     },
     {
@@ -355,8 +511,10 @@
         '{{COURT_ADDRESS}}\n' +
         '\n' +
         'Дело № {{CASE_NUMBER}}\n' +
+        'Цена иска: {{CLAIM_PRICE}} руб.\n' +
+        'Государственная пошлина: {{FEE_AMOUNT}} руб.\n' +
         '\n' +
-        'Заявитель: {{MANAGER_ROLE}} {{DEBTOR_SHORT}}\n' +
+        'Заявитель: {{MANAGER_TITLE}}\n' +
         '{{MANAGER_NAME}}\n' +
         'адрес для корреспонденции: {{MANAGER_ADDRESS}}\n' +
         '{{MANAGER_CONTACTS}}\n' +
@@ -379,8 +537,8 @@
       required: true,
       template:
         'ЗАЯВЛЕНИЕ\n' +
-        'о признании сделки должника недействительной\n' +
-        'и применении последствий её недействительности'
+        'о признании недействительной сделки, совершённой должником в целях причинения ' +
+        'вреда имущественным правам кредиторов, и применении последствий недействительности сделки'
     },
     {
       id: 'case_info',
@@ -388,10 +546,11 @@
       description: 'Процедура, дата введения, судебный акт, полномочия управляющего.',
       group: 'Фактические обстоятельства',
       template:
-        '{{COURT_NAME}} рассматривает дело № {{CASE_NUMBER}} о несостоятельности (банкротстве) ' +
-        '{{DEBTOR_SHORT}}.\n' +
-        '{{JUDICIAL_ACT}} в отношении должника введена процедура — {{PROCEDURE}}. ' +
-        '{{MANAGER_ROLE_INS}} утверждён(а) {{MANAGER_NAME}}, СРО: {{MANAGER_SRO}}.'
+        '{{JUDICIAL_ACT}} {{DEBTOR_NAME}} {{DEBTOR_PASSPORT_BLOCK}} признан(а) несостоятельным(ой) ' +
+        '(банкротом), введена процедура — {{PROCEDURE}}. {{MANAGER_ROLE_INS}} утверждён(а) ' +
+        '{{MANAGER_NAME}} (ИНН {{MANAGER_INN}}, СНИЛС {{MANAGER_SNILS}}, рег. номер ' +
+        '{{MANAGER_REG_NUMBER}}) — член {{MANAGER_SRO}}.\n' +
+        'Заявление о признании должника банкротом принято {{CASE_START_DATE}}.'
     },
     {
       id: 'debtor_info',
@@ -522,6 +681,33 @@
         '{{AWARENESS_NOTE}}'
     },
     {
+      id: 'okb_insolvency',
+      name: 'Признаки неплатёжеспособности по кредитному отчёту',
+      description: 'Таблица возникновения просрочек. Строится по загруженному отчёту ОКБ.',
+      group: 'Фактические обстоятельства',
+      condition: 'case.okb = true',
+      auto: 'table_insolvency',
+      template:
+        'Согласно кредитному отчёту бюро кредитных историй от {{OKB_REPORT_DATE}} в отношении ' +
+        'должника учтено {{OKB_CREDITORS}} кредитных обязательств. Наиболее ранняя просроченная ' +
+        'задолженность, которая в дальнейшем не была погашена, возникла ' +
+        '{{OKB_FIRST_OVERDUE_DATE}} перед {{OKB_FIRST_OVERDUE_CREDITOR}}.\n' +
+        'Сведения о возникновении просроченной задолженности по обязательствам должника:'
+    },
+    {
+      id: 'okb_overdue',
+      name: 'Просроченная задолженность на дату сделки',
+      description: 'Таблица долгов на дату сделки. Строится по загруженному отчёту ОКБ.',
+      group: 'Фактические обстоятельства',
+      condition: 'case.okb = true',
+      auto: 'table_overdue',
+      template:
+        'На дату совершения оспариваемой сделки — {{DEAL_DATE}} — у должника имелась просроченная ' +
+        'задолженность по {{OKB_OVERDUE_COUNT}} на общую сумму {{OKB_OVERDUE_SUM}} руб. ' +
+        '({{OKB_OVERDUE_TOTAL_WORDS}}). Таким образом, на момент совершения сделки должник уже ' +
+        'отвечал признаку неплатёжеспособности:'
+    },
+    {
       id: 'legal_basis',
       name: '12. Правовое обоснование',
       description: 'Общие нормы о недействительности и полномочиях управляющего.',
@@ -578,6 +764,16 @@
         '3. Взыскать с {{COUNTERPARTY_SHORT}} расходы по уплате государственной пошлины.'
     },
     {
+      id: 'fee',
+      name: 'Государственная пошлина',
+      description: 'Цена иска и расчёт пошлины со ссылками на нормы НК РФ.',
+      group: 'Требования',
+      template:
+        'Цена иска составляет {{CLAIM_PRICE}} руб.\n' +
+        'Размер государственной пошлины — {{FEE_AMOUNT}} руб. ({{FEE_WORDS}}).\n' +
+        'Расчёт: {{FEE_CALC}}.'
+    },
+    {
       id: 'attachments',
       name: '15. Приложения',
       description: 'Список формируется автоматически из документов сделки, нумерация сквозная.',
@@ -595,7 +791,7 @@
       template:
         '{{TODAY}}\n' +
         '\n' +
-        '{{MANAGER_ROLE}} {{DEBTOR_SHORT}}\n' +
+        '{{MANAGER_TITLE}}\n' +
         '_________________ / {{MANAGER_NAME}} /'
     }
   ];
@@ -609,8 +805,9 @@
   };
 
   globalThis.ZData = {
-    MONTHS, money, moneyWords, dateLong, dateShort, plural,
+    MONTHS, money, moneyWords, dateLong, dateShort, plural, genitiveFio, genitiveOrg,
     DEAL_TYPES, OBJECT_TYPES, PROCEDURES, PARTY_KINDS, DOC_TYPES,
+    FEE_SCALES, FEE_INVALIDATION, FEE_BANKRUPTCY_SHARE, feeByValue,
     PERFORMANCE, COUNTER, AFFILIATION_GROUNDS, PREFERENCE_GROUNDS,
     CURRENCIES, REALTY_KINDS,
     VARS, VAR_INDEX, BLOCKS,

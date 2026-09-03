@@ -258,6 +258,12 @@ tr.click{cursor:pointer}
 .paper p.b{font-weight:700}
 .paper .miss{background:var(--acc-wash);color:var(--acc);border-radius:3px;padding:0 5px;
   font-family:Onest,system-ui,sans-serif;font-size:11.5px;white-space:nowrap}
+.paper .dt{width:100%;border-collapse:collapse;font-size:.8em;margin:.5em 0;text-indent:0}
+.paper .dt th,.paper .dt td{border:1px solid #9a9a9a;padding:3px 5px;vertical-align:top}
+.paper .dt th{font-weight:700;text-align:center;background:#F4F1EC}
+.paper .dt .left{text-align:left}.paper .dt .right{text-align:right}.paper .dt .center{text-align:center}
+.paper .dt tr.tot td{font-weight:700}
+.paper .dnote{font-size:.78em;font-style:italic;text-indent:0;color:#555}
 
 /* проверка */
 .check li{font-size:13px;color:var(--ink-2);margin:0 0 5px;line-height:1.45}
@@ -308,6 +314,20 @@ tr.click{cursor:pointer}
 .sheetbody p.right,.docmeasure p.right{text-align:right;text-indent:0}
 .sheetbody p.left,.docmeasure p.left{text-align:left;text-indent:0}
 .sheetbody p.b,.docmeasure p.b{font-weight:700}
+/* Таблицы документа. Метрики листа и контейнера для замера описаны одним
+   правилом — разъедутся они, и раскладка по страницам поедет вместе с ними. */
+.sheetbody .dt,.docmeasure .dt{width:100%;border-collapse:collapse;font-size:11pt;
+  margin:.4em 0;text-indent:0;table-layout:fixed}
+.sheetbody .dt th,.docmeasure .dt th{border:1px solid #000;padding:2pt 4pt;font-weight:700;
+  text-align:center;vertical-align:top;word-wrap:break-word}
+.sheetbody .dt td,.docmeasure .dt td{border:1px solid #000;padding:2pt 4pt;
+  vertical-align:top;word-wrap:break-word}
+.sheetbody .dt .left,.docmeasure .dt .left{text-align:left}
+.sheetbody .dt .right,.docmeasure .dt .right{text-align:right}
+.sheetbody .dt .center,.docmeasure .dt .center{text-align:center}
+.sheetbody .dt tr.tot td,.docmeasure .dt tr.tot td{font-weight:700}
+.sheetbody .dnote,.docmeasure .dnote{font-size:10pt;font-style:italic;text-indent:0;margin:.2em 0 .6em}
+.docmeasure .mi{margin:0;padding:0}
 .sheetnum{position:absolute;left:0;right:0;bottom:9mm;text-align:center;font-size:11pt;color:#444}
 /* Контейнер для замера высот: те же метрики, но вне потока и вне глаз. */
 .docmeasure{position:absolute;left:-10000px;top:0;visibility:hidden;
@@ -377,7 +397,12 @@ tr.click{cursor:pointer}
 <main class="page" id="app"></main>
 <div id="modal-root"></div>
 
+<!-- @@PDFJS_WORKER@@ -->
+<!-- @@PDFJS@@ -->
+<!-- @@PARSER@@ -->
 <!-- @@DATA@@ -->
+<!-- @@OKB@@ -->
+<!-- @@IMPORT@@ -->
 <!-- @@STORE@@ -->
 <!-- @@DOC@@ -->
 <!-- @@APP@@ -->

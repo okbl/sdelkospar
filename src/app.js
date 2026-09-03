@@ -16,6 +16,9 @@
   const D = globalThis.ZData;
   const S = globalThis.ZStore;
   const X = globalThis.ZDoc;
+  const IMP = globalThis.ZImport;
+  const OKB = globalThis.ZOkb;
+  const P = globalThis.OKBParser;
 
   let db = S.load();
 
@@ -164,21 +167,28 @@
     // одно крупное действие слева и три шага справа.
     if (!db.cases.length) {
       return `<div class="up">
-        <button class="drop" data-act="new-case">
-          <span class="ic">+</span>
-          <b>Новое дело</b>
-          <span>Суд, номер, должник, управляющий — один раз на всё дело</span>
+        <button class="drop" data-act="import-form">
+          <span class="ic">↑</span>
+          <b>Загрузите печатную форму</b>
+          <span>Суд, номер дела, должник и управляющий подставятся сами</span>
         </button>
         <div class="aside">
           <div class="t">
             <div class="steps">
               <div class="stp"><span class="n">1</span><div><b>Заведите дело</b>
-                <span class="m">Реквизиты подставятся во все заявления внутри него.</span></div></div>
+                <span class="m">Из печатной формы вашей системы или вручную. Реквизиты
+                  подставятся во все заявления внутри дела.</span></div></div>
               <div class="stp"><span class="n">2</span><div><b>Добавьте сделку</b>
                 <span class="m">Тип, объект, стороны и несколько вопросов об обстоятельствах.</span></div></div>
               <div class="stp"><span class="n">3</span><div><b>Соберите заявление</b>
                 <span class="m">Отметьте блоки и скачайте DOCX или распечатайте в PDF.</span></div></div>
             </div>
+          </div>
+          <div class="t">
+            <div class="k">Без печатной формы</div>
+            <p class="m" style="font-size:13px;color:var(--ink-2)">Дело можно завести и вручную —
+              реквизиты вводятся один раз, дальше подставляются сами.</p>
+            <div><button class="btn" data-act="new-case">+ Новое дело</button></div>
           </div>
           <div class="t">
             <div class="k">Данные остаются у вас</div>
@@ -220,7 +230,10 @@
           <div><b>${total.ready}</b>${D.plural(total.ready, 'заявление готово', 'заявления готовы', 'заявлений готово')}</div>
           <div><b>${total.draft}</b>${D.plural(total.draft, 'черновик', 'черновика', 'черновиков')}</div>
         </div>
-        <div class="act"><button class="btn pri" data-act="new-case">+ Новое дело</button></div>
+        <div class="act">
+          <button class="btn pri" data-act="import-form">Загрузить печатную форму</button>
+          <button class="btn" data-act="new-case">+ Новое дело</button>
+        </div>
       </div>
 
       <div class="t s4">
@@ -274,11 +287,24 @@
         </div>
 
         <div class="t s4">
+          <div class="k">Кредитный отчёт ОКБ</div>
+          ${c.okb ? `<div class="v">${(c.okb.contracts || []).length}</div>
+            <p class="m">${esc(c.okb.fio || '')}${c.okb.reportDate ? ' · отчёт от ' + esc(D.dateShort(c.okb.reportDate)) : ''}.
+              По нему строятся таблицы просрочек в заявлении.</p>`
+        : '<p class="m">Не загружен. Загрузите PDF-отчёт ОКБ или «Кредистории» — приложение соберёт таблицы просрочек и момента неплатёжеспособности.</p>'}
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:auto;padding-top:8px">
+            <button class="btn btn-sm" data-act="import-okb">${c.okb ? 'Заменить отчёт' : 'Загрузить отчёт'}</button>
+            ${c.okb ? '<button class="btn btn-sm danger" data-act="drop-okb">Убрать</button>' : ''}
+          </div>
+        </div>
+
+        <div class="t s4">
           <div class="k">Готовность заявлений</div>
           <div class="v">${pct}<small style="font-size:16px;color:var(--ink-3)"> %</small></div>
           <div class="meter"><i class="${pct === 100 ? 'done' : ''}" style="width:${pct}%"></i></div>
           <p class="m">${s.ready} из ${s.deals} ${D.plural(s.deals, 'сделки', 'сделок', 'сделок')} доведено до готового заявления.</p>
-          <div style="margin-top:auto;padding-top:8px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:auto;padding-top:8px">
+            <button class="btn btn-sm" data-act="import-form">Обновить из печатной формы</button>
             <button class="btn btn-sm danger" data-act="del-case">Удалить дело</button>
           </div>
         </div>
@@ -309,6 +335,9 @@
           ${field({ label: 'Дата введения процедуры', bind: 'case.procedureDate', type: 'date' })}
           ${field({ label: 'Дата возбуждения дела', bind: 'case.caseStartDate', type: 'date', hint: 'От неё считаются периоды подозрительности' })}
           ${field({ label: 'Реквизиты судебного акта', bind: 'case.judicialAct', wide: true, placeholder: 'Решением Арбитражного суда города Москвы от 12.03.2025 по делу № А40-000000/2025' })}
+          ${field({ label: 'Должник в родительном падеже', bind: 'case.debtorNameGen', wide: true,
+            placeholder: D.genitiveFio(S.partyName(S.debtorOf(c))) || 'Ивановой Марии Петровны',
+            hint: 'Для строки «управляющий имуществом должника …». Пусто — просклоняем сами' })}
           ${field({ label: 'Размер требований кредиторов, ₽', bind: 'case.creditorsSum', money: true })}
         </div>
       </div>
@@ -324,7 +353,10 @@
         <p class="m">Пустые поля берутся из профиля — заполнять по каждому делу не нужно.</p>
         <div class="form">
           ${field({ label: 'ФИО', bind: 'case.managerName', placeholder: db.profile.name || 'Иванов Иван Иванович' })}
-          ${field({ label: 'СРО', bind: 'case.managerSro', placeholder: db.profile.sro || '' })}
+          ${field({ label: 'СРО', bind: 'case.managerSro', wide: true, placeholder: db.profile.sro || '' })}
+          ${field({ label: 'ИНН', bind: 'case.managerInn', placeholder: db.profile.inn || '' })}
+          ${field({ label: 'СНИЛС', bind: 'case.managerSnils', placeholder: db.profile.snils || '' })}
+          ${field({ label: 'Регистрационный номер', bind: 'case.managerRegNumber', placeholder: db.profile.regNumber || '' })}
           ${field({ label: 'Адрес для корреспонденции', bind: 'case.managerAddress', wide: true, placeholder: db.profile.address || '' })}
           ${field({ label: 'Контакты', bind: 'case.managerContacts', wide: true, placeholder: db.profile.contacts || 'тел. +7 000 000-00-00, e-mail: ...' })}
         </div>
@@ -359,8 +391,10 @@
     } else {
       body = field({ label: 'ФИО', bind: b + 'fio', wide: true, required: true }) +
         field({ label: 'Дата рождения', bind: b + 'birthDate', type: 'date' }) +
+        field({ label: 'Место рождения', bind: b + 'birthPlace' }) +
         field({ label: 'ИНН', bind: b + 'inn' }) +
-        field({ label: 'Адрес', bind: b + 'address', wide: true });
+        field({ label: 'СНИЛС', bind: b + 'snils' }) +
+        field({ label: 'Адрес регистрации', bind: b + 'address', wide: true });
     }
     return `<div class="form">${head}${body}</div>`;
   }
@@ -471,6 +505,7 @@
         ${tab('deal', 'object', 'Объект')}
         ${tab('deal', 'perf', 'Исполнение')}
         ${tab('deal', 'circ', 'Обстоятельства')}
+        ${tab('deal', 'fee', 'Госпошлина')}
         ${tab('deal', 'docs', 'Документы', docs)}
       </div>`;
 
@@ -478,6 +513,7 @@
       : tabs.deal === 'object' ? dealObjectTab(d)
         : tabs.deal === 'perf' ? dealPerfTab(d)
           : tabs.deal === 'circ' ? dealCircTab(d)
+          : tabs.deal === 'fee' ? dealFeeTab(d)
             : tabs.deal === 'docs' ? dealDocsTab(d)
               : dealMainTab(d);
 
@@ -657,6 +693,50 @@
         В конструкторе состав блоков можно поправить вручную.</div>`;
   }
 
+  /** Расчёт пошлины показывается по шагам: сумму под заявлением подписывает человек. */
+  function dealFeeTab(d) {
+    const calc = S.feeCalc(d);
+    const f = d.fee;
+    const rows = calc.steps.map((s) => `<tr><td>${esc(s.text)}</td>
+      <td class="r">${esc(D.money(s.sum))}</td></tr>`).join('');
+
+    return `<div class="card">
+      <h3>Государственная пошлина</h3>
+      <p class="m">Считается по статье 333.21 НК РФ в редакции с 09.09.2024.</p>
+      <div class="form">
+        ${field({ label: 'Цена иска, ₽', bind: 'deal.fee.claim', money: true,
+          placeholder: D.money(S.objectValue(d)) || '0,00',
+          hint: 'Пусто — берётся стоимость объекта, иначе сумма сделки' })}
+        ${field({ label: 'Шкала по цене иска', bind: 'deal.fee.scale', type: 'select', options: [
+          { id: 'org', name: 'как для организации' }, { id: 'person', name: 'как для физического лица' }] })}
+        ${field({ label: 'Ставка за признание сделки недействительной', bind: 'deal.fee.fixedPayer', type: 'select', options: [
+          { id: 'person', name: 'физическое лицо — 15 000 ₽' }, { id: 'org', name: 'организация — 50 000 ₽' }] })}
+        ${field({ label: 'Своя сумма, ₽', bind: 'deal.fee.manual', money: true, hint: 'Если суд считает иначе' })}
+        <div class="f wide">
+          <label class="chk"><input type="checkbox" data-bind="deal.fee.withFixed"${f.withFixed ? ' checked' : ''}>
+            <span>Добавлять требование о признании сделки недействительной (пп. 2 п. 1 ст. 333.21 НК РФ)</span></label>
+          <label class="chk"><input type="checkbox" data-bind="deal.fee.halved"${f.halved ? ' checked' : ''}>
+            <span>Обособленный спор в деле о банкротстве — 50 % (пп. 9 п. 1 ст. 333.21 НК РФ)</span></label>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Расчёт</h3>
+      <table><tbody>${rows}
+        <tr class="tot"><td><b>Итого к уплате</b></td>
+          <td class="r"><b>${esc(D.money(calc.total))} ₽</b></td></tr>
+      </tbody></table>
+      ${calc.manual ? '<div class="note calm" style="margin-top:12px">Сумма задана вручную — расчёт выше показан для сверки.</div>' : ''}
+      <p class="hint">Прописью: ${esc(D.moneyWords(calc.total))}.</p>
+    </div>
+
+    <div class="note calm">Формула сверена по четырём заявлениям из вашего архива: при цене иска
+      205 000, 415 150 и 933 114 руб. расчёт совпадает до копейки. В четвёртом (1 418 640 руб.)
+      в шаблоне указано 33 779,50 руб. — это только имущественная часть, без 7 500 руб.
+      за требование о признании сделки недействительной. Если так и задумано, снимите галочку выше.</p>`;
+  }
+
   function dealDocsTab(d) {
     const docs = d.documents || [];
     const rows = docs.map((doc) => `<tr>
@@ -791,6 +871,7 @@
     const paras = S.buildDocument(db, c, d, { mark: true });
     if (!paras.length) return '<p class="left" style="color:#8A867F">Не включён ни один блок.</p>';
     return paras.map((p) => {
+      if (p.kind === 'table') return X.tableHtml(p);
       const text = esc(p.text)
         .split(S.MISS_A).join('<span class="miss">')
         .split(S.MISS_B).join('</span>');
@@ -937,6 +1018,9 @@
       <div class="form">
         ${field({ label: 'ФИО арбитражного управляющего', bind: 'profile.name', wide: true })}
         ${field({ label: 'СРО', bind: 'profile.sro', wide: true })}
+        ${field({ label: 'ИНН', bind: 'profile.inn' })}
+        ${field({ label: 'СНИЛС', bind: 'profile.snils' })}
+        ${field({ label: 'Регистрационный номер', bind: 'profile.regNumber' })}
         ${field({ label: 'Адрес для корреспонденции', bind: 'profile.address', wide: true })}
         ${field({ label: 'Контакты', bind: 'profile.contacts', wide: true })}
       </div>
@@ -1237,6 +1321,194 @@
     }
   }
 
+
+  /* ================= импорт печатной формы и отчёта ОКБ ================= */
+
+  /** Разовый выбор файла: скрытый input живёт ровно столько, сколько нужно. */
+  function pickFile(accept) {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = accept;
+      input.style.display = 'none';
+      document.body.appendChild(input);
+      input.addEventListener('change', () => {
+        const file = input.files && input.files[0];
+        input.remove();
+        resolve(file || null);
+      });
+      // Отмена в диалоге события change не даёт — вешаемся на фокус окна.
+      window.addEventListener('focus', () => setTimeout(() => {
+        if (document.body.contains(input) && !(input.files && input.files.length)) {
+          input.remove();
+          resolve(null);
+        }
+      }, 400), { once: true });
+      input.click();
+    });
+  }
+
+  /** Поля печатной формы → дело. Пустое в форме ничего не затирает. */
+  function applyPrintForm(kase, data) {
+    const set = (obj, key, value) => { if (value) obj[key] = value; };
+
+    set(kase, 'court', data.court);
+    set(kase, 'courtAddress', data.courtAddress);
+    set(kase, 'number', data.caseNumber);
+    set(kase, 'caseStartDate', data.caseStartDate);
+    set(kase, 'judicialAct', data.judicialAct);
+    set(kase, 'procedure', data.procedure);
+    set(kase, 'procedureDate', data.procedureDate);
+    set(kase, 'debtorNameGen', data.debtorNameGen);
+    set(kase, 'managerName', data.managerName);
+    set(kase, 'managerAddress', data.managerAddress);
+    set(kase, 'managerInn', data.managerInn);
+    set(kase, 'managerSnils', data.managerSnils);
+    set(kase, 'managerRegNumber', data.managerRegNumber);
+    if (data.sroName) {
+      kase.managerSro = data.sroName +
+        (data.sroOgrn ? ' (ОГРН ' + data.sroOgrn + (data.sroInn ? ', ИНН ' + data.sroInn : '') +
+          (data.sroAddress ? ', адрес: ' + data.sroAddress : '') + ')' : '');
+    }
+
+    const debtor = S.debtorOf(kase);
+    if (debtor && data.debtorName) {
+      // Должник в печатной форме — всегда гражданин.
+      debtor.kind = 'person';
+      set(debtor, 'fio', data.debtorName);
+      set(debtor, 'address', data.debtorAddress);
+      set(debtor, 'inn', data.debtorInn);
+      set(debtor, 'birthDate', data.debtorBirthDate);
+      set(debtor, 'birthPlace', data.debtorBirthPlace);
+      set(debtor, 'snils', data.debtorSnils);
+    }
+
+    // Ответчик заводится стороной дела, только если форма его уже знает.
+    if (data.respondentName && !kase.parties.some((p) => S.partyName(p) === data.respondentName)) {
+      const party = S.newParty('person');
+      party.fio = data.respondentName;
+      party.address = data.respondentAddress || '';
+      kase.parties.push(party);
+      return party;
+    }
+    return null;
+  }
+
+  async function importPrintForm() {
+    const file = await pickFile('.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    if (!file) return;
+
+    let data;
+    try {
+      data = IMP.parsePrintForm(await IMP.readDocx(new Uint8Array(await file.arrayBuffer())));
+    } catch (e) {
+      return note('Не удалось прочитать файл: ' + (e && e.message ? e.message : e));
+    }
+    if (!data.court && !data.caseNumber && !data.debtorName) {
+      return note('В файле не нашлось ни суда, ни номера дела, ни должника. ' +
+        'Похоже, это не печатная форма — заполните дело вручную.');
+    }
+
+    const shown = Object.keys(IMP.FIELD_NAMES).filter((k) => data[k]);
+    const rows = shown.map((k) => `<tr><td class="sub">${esc(IMP.FIELD_NAMES[k])}</td><td><b>${esc(
+      k === 'procedure' ? D.nameOf(D.PROCEDURES, data[k])
+        : /Date$/.test(k) ? D.dateShort(data[k]) : data[k])}</b></td></tr>`).join('');
+    const lost = data.missing.filter((k) => IMP.FIELD_NAMES[k]).map((k) => IMP.FIELD_NAMES[k]);
+    const target = currentCase();
+
+    openModal(`<h3>Печатная форма прочитана</h3>
+      <p class="lead">Распознано ${shown.length} ${D.plural(shown.length, 'поле', 'поля', 'полей')}.
+        Проверьте и подтвердите — пустые значения ничего не затрут.</p>
+      <table><tbody>${rows}</tbody></table>
+      ${lost.length ? `<div class="note calm" style="margin-top:14px">Не нашлось: ${esc(lost.join(', '))}.
+        Эти поля заполните руками.</div>` : ''}
+      <div class="foot">
+        <button class="btn" data-act="modal-close">Отмена</button>
+        ${target ? '<button class="btn" id="imp-here">Обновить текущее дело</button>' : ''}
+        <button class="btn pri" id="imp-new">Создать дело</button>
+      </div>`, (root, close) => {
+      const finish = (kase) => {
+        const respondent = applyPrintForm(kase, data);
+        // Ответчика из формы сразу подставляем в новую сделку — иначе его
+        // придётся выбирать руками, хотя приложение его уже знает.
+        if (respondent) for (const deal of kase.deals) if (!deal.counterpartyId) deal.counterpartyId = respondent.id;
+        saveNow();
+        close();
+        go('#/case/' + kase.id);
+        render();
+      };
+      $('#imp-new', root).addEventListener('click', () => {
+        const kase = S.newCase();
+        db.cases.push(kase);
+        finish(kase);
+      });
+      if (target) $('#imp-here', root).addEventListener('click', () => finish(target));
+    });
+  }
+
+  /**
+   * Разбор кредитного отчёта. Тот же parser.js, что и в анализаторе отчётов:
+   * файл читается в браузере и никуда не отправляется.
+   */
+  async function importOkb() {
+    const kase = currentCase();
+    if (!kase) return;
+    const file = await pickFile('application/pdf,.pdf');
+    if (!file) return;
+
+    const close = openModal(`<h3>Разбираю отчёт</h3>
+      <p class="lead" id="okb-text">Читаю файл…</p>
+      <div class="meter"><i id="okb-bar" style="width:2%"></i></div>`);
+    const step = (text, ratio) => {
+      const el = $('#okb-text'), bar = $('#okb-bar');
+      if (el) el.textContent = text;
+      if (bar) bar.style.width = Math.round(ratio * 100) + '%';
+      return new Promise((r) => setTimeout(r, 0));
+    };
+
+    try {
+      const buf = await file.arrayBuffer();
+      const doc = await globalThis.pdfjsLib.getDocument({ data: new Uint8Array(buf), useSystemFonts: true }).promise;
+      const pages = [];
+      for (let n = 1; n <= doc.numPages; n++) {
+        const page = await doc.getPage(n);
+        const tc = await page.getTextContent();
+        pages.push({
+          num: n,
+          rows: P.buildRows(tc.items.map((it) => ({
+            str: it.str, x: it.transform[4], y: it.transform[5], width: it.width
+          }))),
+          // Нужен старому формату отчёта: статус платежа нарисован иконкой.
+          shapes: P.buildShapes(await page.getOperatorList(), globalThis.pdfjsLib.OPS)
+        });
+        if (n % 4 === 0 || n === doc.numPages) await step(`Страница ${n} из ${doc.numPages}`, n / doc.numPages);
+      }
+
+      const parsed = P.parse(pages);
+      if (!parsed.contracts.length) {
+        throw new Error('в файле не найдено кредитных договоров — похоже, это не отчёт ОКБ или «Кредистории»');
+      }
+      kase.okb = OKB.compact(parsed);
+      // Состав блоков пересобирать не будем: условие `case.okb = true` откроет
+      // таблицы, а включать их или нет — решает человек в конструкторе.
+      saveNow();
+      close();
+      render();
+
+      const starts = OKB.overdueStarts(kase.okb);
+      const first = OKB.earliestUncured(starts);
+      note('Отчёт разобран: ' + kase.okb.contracts.length + ' ' +
+        D.plural(kase.okb.contracts.length, 'обязательство', 'обязательства', 'обязательств') +
+        ', просрочка отмечена по ' + starts.length + '. ' +
+        (first && first.since ? 'Самая ранняя непогашенная — ' + D.dateShort(first.since) +
+          ' (' + first.creditor + '). ' : '') +
+        'Таблицы включаются в конструкторе заявления.');
+    } catch (e) {
+      close();
+      note('Не удалось разобрать отчёт: ' + (e && e.message ? e.message : e));
+    }
+  }
+
   /* ================= отрисовка ================= */
 
   function notFound() {
@@ -1372,6 +1644,16 @@
     switch (act) {
       case 'modal-close': closeModal(); break;
       case 'new-case': newCase(); break;
+      case 'import-form': importPrintForm(); break;
+      case 'import-okb': importOkb(); break;
+
+      case 'drop-okb':
+        confirmBox('Убрать кредитный отчёт из дела? Таблицы по нему исчезнут из заявлений.', () => {
+          c.okb = null;
+          saveNow(); render();
+        });
+        break;
+
       case 'new-deal': newDeal(); break;
 
       case 'del-case':

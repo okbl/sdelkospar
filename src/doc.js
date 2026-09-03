@@ -146,8 +146,51 @@
     return `<w:p>${pPr}${runs}</w:p>`;
   }
 
+  const CELL_ALIGN = { left: 'left', right: 'right', center: 'center' };
+
+  /**
+   * Таблица DOCX. Ширины колонок заданы долями полосы набора: Word умеет
+   * авторазметку, но тогда узкая графа «Дней» растягивается на треть листа.
+   * Шапка помечена tblHeader — при переносе на следующий лист она повторится.
+   */
+  function tableXml(t) {
+    const width = PAGE.w - PAGE.left - PAGE.right;
+    const weights = t.head.map((h, i) => (t.align && t.align[i] === 'left' ? 3 : 1));
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    const widths = weights.map((w) => Math.round(width * w / totalWeight));
+
+    const cell = (text, i, opts) => {
+      const jc = CELL_ALIGN[(t.align || [])[i]] || 'left';
+      const rPr = opts && opts.bold ? '<w:rPr><w:b/></w:rPr>' : '';
+      return `<w:tc><w:tcPr><w:tcW w:w="${widths[i]}" w:type="dxa"/></w:tcPr>` +
+        `<w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/>` +
+        `<w:jc w:val="${jc}"/></w:pPr>` +
+        `<w:r>${rPr}<w:t xml:space="preserve">${esc(text)}</w:t></w:r></w:p></w:tc>`;
+    };
+
+    const row = (cells, opts) =>
+      '<w:tr>' + (opts && opts.header ? '<w:trPr><w:tblHeader/></w:trPr>' : '') +
+      cells.map((c, i) => cell(c, i, opts)).join('') + '</w:tr>';
+
+    const borders = ['top', 'left', 'bottom', 'right', 'insideH', 'insideV']
+      .map((k) => `<w:${k} w:val="single" w:sz="4" w:space="0" w:color="000000"/>`).join('');
+
+    return '<w:tbl>' +
+      `<w:tblPr><w:tblW w:w="${width}" w:type="dxa"/><w:tblBorders>${borders}</w:tblBorders>` +
+      '<w:tblCellMar><w:left w:w="57" w:type="dxa"/><w:right w:w="57" w:type="dxa"/></w:tblCellMar>' +
+      '</w:tblPr>' +
+      '<w:tblGrid>' + widths.map((w) => `<w:gridCol w:w="${w}"/>`).join('') + '</w:tblGrid>' +
+      row(t.head, { header: true, bold: true }) +
+      t.rows.map((r) => row(r)).join('') +
+      (t.total ? row(t.total, { bold: true }) : '') +
+      '</w:tbl>' +
+      // После таблицы Word требует абзац, иначе следующая таблица слипается
+      // с предыдущей в одну.
+      '<w:p><w:pPr><w:spacing w:after="0"/></w:pPr></w:p>';
+  }
+
   function documentXml(paras) {
-    const body = paras.map(paragraphXml).join('');
+    const body = paras.map((p) => (p.kind === 'table' ? tableXml(p) : paragraphXml(p))).join('');
     const sect = '<w:sectPr>' +
       '<w:footerReference w:type="default" r:id="rId2"/>' +
       `<w:pgSz w:w="${PAGE.w}" w:h="${PAGE.h}"/>` +
@@ -247,6 +290,49 @@
   const paraHtml = (p, i) =>
     `<p class="dp ${p.align}${p.bold ? ' b' : ''}" data-i="${i}">${esc(p.text) || '&nbsp;'}</p>`;
 
+  const cellsHtml = (cells, align, tag) => cells
+    .map((c, i) => `<${tag} class="${(align || [])[i] || 'left'}">${esc(c)}</${tag}>`).join('');
+
+  /** Таблица целиком — для предпросмотра, где резать по страницам не нужно. */
+  const tableHtml = (t) =>
+    '<table class="dt"><thead><tr>' + cellsHtml(t.head, t.align, 'th') + '</tr></thead><tbody>' +
+    t.rows.map((r) => '<tr>' + cellsHtml(r, t.align, 'td') + '</tr>').join('') +
+    (t.total ? '<tr class="tot">' + cellsHtml(t.total, t.align, 'td') + '</tr>' : '') +
+    '</tbody></table>' + (t.note ? `<p class="dnote">${esc(t.note)}</p>` : '');
+
+  /**
+   * Материал документа, разложенный на неделимые куски: абзац или одна
+   * строка таблицы. Строка — минимальная единица переноса, поэтому длинная
+   * таблица разрывается между листами, а не вылезает за обрез целиком.
+   */
+  function flow(paras) {
+    const items = [];
+    paras.forEach((p, i) => {
+      if (p.kind !== 'table') { items.push({ type: 'p', p: p, i: i }); return; }
+      const rows = p.rows.concat(p.total ? [p.total] : []);
+      rows.forEach((r, n) => items.push({
+        type: 'row', table: p, cells: r, first: n === 0,
+        total: !!p.total && n === rows.length - 1
+      }));
+      if (p.note) items.push({ type: 'p', p: { text: p.note, align: 'left', bold: false, note: true }, i: i });
+    });
+    return items;
+  }
+
+  /** Один кусок в разметку. Строка таблицы меряется вместе с шапкой. */
+  function itemHtml(item, withHead) {
+    if (item.type === 'p') {
+      return item.p.note
+        ? `<p class="dnote">${esc(item.p.text)}</p>`
+        : paraHtml(item.p, item.i);
+    }
+    const t = item.table;
+    return '<table class="dt"><thead><tr>' +
+      cellsHtml(t.head, t.align, 'th') + '</tr></thead><tbody><tr' +
+      (item.total ? ' class="tot"' : '') + '>' + cellsHtml(item.cells, t.align, 'td') +
+      '</tr></tbody></table>';
+  }
+
   /**
    * Раскладка по листам. Высоты не прикидываются, а измеряются: абзацы
    * рендерятся в скрытом контейнере той же ширины, и только потом
@@ -255,33 +341,74 @@
    */
   function buildSheets(paras, opts) {
     const doc = (opts && opts.document) || globalThis.document;
+    const items = flow(paras);
+
     const box = doc.createElement('div');
     box.className = 'docmeasure';
     box.style.width = (SHEET.w - SHEET.left - SHEET.right) + 'mm';
-    box.innerHTML = paras.map(paraHtml).join('');
+    // Каждый кусок меряется отдельной обёрткой: у строки таблицы своя высота,
+    // а шапка добавляется к первой строке на листе, и её высоту надо знать.
+    box.innerHTML = items.map((it) => '<div class="mi">' + itemHtml(it) + '</div>').join('');
     doc.body.appendChild(box);
 
+    const heights = [...box.children].map((n) => n.getBoundingClientRect().height);
+    // Высота одной только шапки таблицы — цена переноса на новый лист.
+    const headBox = doc.createElement('div');
+    headBox.className = 'docmeasure';
+    headBox.style.width = (SHEET.w - SHEET.left - SHEET.right) + 'mm';
+    headBox.innerHTML = items.map((it) => '<div class="mi">' +
+      (it.type === 'row' ? '<table class="dt"><thead><tr>' +
+        cellsHtml(it.table.head, it.table.align, 'th') + '</tr></thead></table>' : '') + '</div>').join('');
+    doc.body.appendChild(headBox);
+    const headHeights = [...headBox.children].map((n) => n.getBoundingClientRect().height);
+
+    box.remove();
+    headBox.remove();
+
     const limit = CONTENT_H * MM;
-    const nodes = [...box.children];
     const pages = [[]];
     let used = 0;
 
-    for (let i = 0; i < nodes.length; i++) {
-      const h = nodes[i].getBoundingClientRect().height;
-      // Абзац выше листа не разрезать нечем — отдаём его странице целиком
-      // и позволяем браузеру перенести хвост.
-      if (used > 0 && used + h > limit) { pages.push([]); used = 0; }
+    for (let i = 0; i < items.length; i++) {
+      const isFirstOnPage = pages[pages.length - 1].length === 0;
+      // Строке таблицы, открывающей лист, нужна ещё и шапка.
+      const extra = items[i].type === 'row' && isFirstOnPage ? headHeights[i] : 0;
+      const h = heights[i] + (items[i].type === 'row' && !items[i].first ? -headHeights[i] : 0);
+      if (used > 0 && used + h + extra > limit) { pages.push([]); used = extra; }
       pages[pages.length - 1].push(i);
-      used += h;
+      used += h + (pages[pages.length - 1].length === 1 ? extra : 0);
     }
-    box.remove();
 
     const total = pages.length;
     return pages.map((idx, n) =>
-      '<section class="sheet">' +
-      '<div class="sheetbody">' + idx.map((i) => paraHtml(paras[i], i)).join('') + '</div>' +
-      `<div class="sheetnum">${n + 1} из ${total}</div>` +
-      '</section>').join('');
+      '<section class="sheet"><div class="sheetbody">' + renderPage(items, idx) + '</div>' +
+      `<div class="sheetnum">${n + 1} из ${total}</div></section>`).join('');
+  }
+
+  /** Соседние строки одной таблицы собираются обратно в одну таблицу с шапкой. */
+  function renderPage(items, idx) {
+    const out = [];
+    let open = null;
+    const close = () => {
+      if (!open) return;
+      out.push('<table class="dt"><thead><tr>' + cellsHtml(open.t.head, open.t.align, 'th') +
+        '</tr></thead><tbody>' + open.rows.join('') + '</tbody></table>');
+      open = null;
+    };
+
+    for (const i of idx) {
+      const item = items[i];
+      if (item.type === 'row') {
+        if (!open || open.t !== item.table) { close(); open = { t: item.table, rows: [] }; }
+        open.rows.push('<tr' + (item.total ? ' class="tot"' : '') + '>' +
+          cellsHtml(item.cells, item.table.align, 'td') + '</tr>');
+      } else {
+        close();
+        out.push(itemHtml(item));
+      }
+    }
+    close();
+    return out.join('');
   }
 
   /* ================= сохранение файла ================= */
@@ -303,7 +430,7 @@
     .replace(/\s+/g, ' ').trim().slice(0, 90) || 'Заявление';
 
   globalThis.ZDoc = {
-    zip, crc32, docxBytes, documentXml, buildSheets, download, safeName,
+    zip, crc32, docxBytes, documentXml, tableXml, buildSheets, tableHtml, flow, download, safeName,
     SHEET, CONTENT_H, MM,
     DOCX_MIME: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
   };

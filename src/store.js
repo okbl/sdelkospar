@@ -12,6 +12,9 @@
   'use strict';
 
   const D = globalThis.ZData;
+  // Разбор отчёта ОКБ подключается отдельным файлом; без него приложение
+  // работает как раньше, просто без таблиц по отчёту.
+  const OKB = () => globalThis.ZOkb || null;
   const KEY = 'zayav-db';
   const SCHEMA = 1;
 
@@ -23,7 +26,7 @@
   function newDb() {
     return {
       schema: SCHEMA,
-      profile: { name: '', sro: '', address: '', contacts: '' },
+      profile: { name: '', sro: '', address: '', contacts: '', inn: '', snils: '', regNumber: '' },
       cases: [],
       customBlocks: [],     // блоки, созданные пользователем (§11)
       edits: {}             // правки текстов стандартных блоков: id → template
@@ -35,7 +38,7 @@
       id: uid(), kind: kind || 'org',
       nameFull: '', nameShort: '', inn: '', ogrn: '',
       addressLegal: '', addressPostal: '', director: '', representative: '', powerBasis: '',
-      fio: '', birthDate: '', address: '', ogrnip: '',
+      fio: '', birthDate: '', birthPlace: '', snils: '', address: '', ogrnip: '',
       role: ''             // 'debtor' — должник дела, подставляется автоматически
     };
   }
@@ -48,7 +51,10 @@
       court: '', courtAddress: '', number: '',
       procedure: 'bankruptcy', procedureDate: '', judicialAct: '', caseStartDate: '',
       managerName: '', managerAddress: '', managerContacts: '', managerSro: '',
+      managerInn: '', managerSnils: '', managerRegNumber: '',
       creditorsSum: '',
+      debtorNameGen: '',    // «…имуществом должника Абрамовой Зарият Руслановны»
+      okb: null,            // урезанный кредитный отчёт ОКБ, если он загружен
       debtorId: debtor.id,
       parties: [debtor],
       deals: []
@@ -88,6 +94,14 @@
       preferenceGrounds: [], preferenceNote: '',
       harmNote: '', awarenessNote: '', circumstances: '',
       documents: [],
+      fee: {
+        claim: '',            // цена иска; пусто — берём рыночную стоимость объекта
+        scale: 'org',         // шкала пп. 1 п. 1 ст. 333.21 НК РФ
+        fixedPayer: 'person', // ставка пп. 2 п. 1 ст. 333.21 НК РФ
+        withFixed: true,      // включать требование о признании сделки недействительной
+        halved: true,         // пп. 9: обособленный спор в деле о банкротстве
+        manual: ''            // ручная сумма, если расчёт расходится с практикой суда
+      },
       statement: newStatement()
     };
   }
@@ -259,6 +273,9 @@
     const perf = D.byId(D.PERFORMANCE, deal.performance.state);
     const counter = D.byId(D.COUNTER, deal.counter.state);
     const gap = gapValue(deal);
+    const claim = claimPrice(deal);
+    const fee = feeCalc(deal);
+    const feeKnown = fee.manual || claim > 0;
 
     const v = {
       CASE_NUMBER: kase.number,
@@ -275,14 +292,25 @@
       MANAGER_ADDRESS: kase.managerAddress || db.profile.address,
       MANAGER_CONTACTS: kase.managerContacts || db.profile.contacts,
       MANAGER_SRO: kase.managerSro || db.profile.sro,
+      MANAGER_INN: kase.managerInn || db.profile.inn,
+      MANAGER_SNILS: kase.managerSnils || db.profile.snils,
+      MANAGER_REG_NUMBER: kase.managerRegNumber || db.profile.regNumber,
       CREDITORS_SUM: D.money(kase.creditorsSum),
 
       DEBTOR_NAME: partyName(debtor),
+      DEBTOR_NAME_GEN: debtorGen(kase, debtor),
+      MANAGER_TITLE: managerTitle(kase, debtor, proc),
       DEBTOR_SHORT: partyShort(debtor),
       DEBTOR_INN: partyInn(debtor),
       DEBTOR_OGRN: partyOgrn(debtor),
       DEBTOR_ADDRESS: partyAddress(debtor),
       DEBTOR_REQUISITES: partyRequisites(debtor),
+      DEBTOR_BIRTH_DATE: debtor ? D.dateShort(debtor.birthDate) : '',
+      DEBTOR_BIRTH_PLACE: debtor ? debtor.birthPlace : '',
+      DEBTOR_SNILS: debtor ? debtor.snils : '',
+      // «(15.03.1990 г.р., место рожд.: …, адрес рег.: …, СНИЛС …, ИНН …)» —
+      // так реквизиты гражданина печатают в первом абзаце заявления.
+      DEBTOR_PASSPORT_BLOCK: debtorBlock(debtor),
 
       COUNTERPARTY_NAME: partyName(cp),
       COUNTERPARTY_SHORT: partyShort(cp),
@@ -336,9 +364,21 @@
       AWARENESS_NOTE: deal.awarenessNote,
       CIRCUMSTANCES: deal.circumstances,
 
+      // Пока цена иска не заполнена, пошлины нет: имущественная часть
+      // неизвестна, и в предпросмотре это место подсветится как незаполненное,
+      // а не покажет уверенную сумму из одной твёрдой ставки.
+      CLAIM_PRICE: claim > 0 ? D.money(claim) : '',
+      FEE_AMOUNT: feeKnown ? D.money(fee.total) : '',
+      FEE_WORDS: feeKnown ? D.moneyWords(fee.total) : '',
+      FEE_CALC: feeKnown ? feeText(deal) : '',
+
       TODAY: D.dateLong(new Date().toISOString().slice(0, 10)),
       ATTACHMENTS: attachments(deal).map((a, i) => (i + 1) + '. ' + a).join('\n')
     };
+
+    // Цифры из кредитного отчёта — отдельным набором, чтобы блоки могли
+    // сослаться на них, не вставляя таблицу целиком.
+    if (OKB()) Object.assign(v, OKB().vars(kase.okb, deal.date));
 
     for (const k of Object.keys(v)) if (v[k] == null) v[k] = '';
     return v;
@@ -351,6 +391,124 @@
     const b = Number(deal.counter.counterValue);
     const got = deal.counter.counterValue === '' ? 0 : (isFinite(b) ? b : 0);
     return a - got;
+  }
+
+  /**
+   * Должник в родительном падеже. Склоняем только людей: у организации
+   * наименование в кавычках не склоняется, и «ООО «Ромашка»а» — ровно тот
+   * мусор, который потом уедет в суд.
+   */
+  function debtorGen(kase, debtor) {
+    if (kase.debtorNameGen) return kase.debtorNameGen;
+    if (!debtor) return '';
+    if (debtor.kind === 'org') return D.genitiveOrg(partyName(debtor));
+    return D.genitiveFio(partyName(debtor));
+  }
+
+  /**
+   * Как заявитель называет себя в шапке. У гражданина управляющий
+   * распоряжается имуществом («финансовый управляющий имуществом должника
+   * Ивановой И. И.»), у организации — самой организацией.
+   */
+  function managerTitle(kase, debtor, proc) {
+    const role = proc ? proc.manager : 'арбитражный управляющий';
+    const name = debtorGen(kase, debtor);
+    if (!name) return role;
+    return debtor && debtor.kind === 'org'
+      ? role + ' ' + name
+      : role + ' имуществом должника ' + name;
+  }
+
+  /** Скобка с реквизитами гражданина-должника; пустые поля пропускаются. */
+  function debtorBlock(debtor) {
+    if (!debtor || debtor.kind === 'org') return '';
+    const bits = [];
+    if (debtor.birthDate) bits.push(D.dateShort(debtor.birthDate) + ' г.р.');
+    if (debtor.birthPlace) bits.push('место рожд.: ' + debtor.birthPlace);
+    if (debtor.address) bits.push('адрес рег.: ' + debtor.address);
+    if (debtor.snils) bits.push('СНИЛС ' + debtor.snils);
+    if (debtor.inn) bits.push('ИНН ' + debtor.inn);
+    return bits.length ? '(' + bits.join(', ') + ')' : '';
+  }
+
+  /* ================= государственная пошлина ================= */
+
+  /** Цена иска: заданная вручную, иначе рыночная стоимость, иначе сумма сделки. */
+  function claimPrice(deal) {
+    const f = deal.fee || {};
+    if (f.claim !== '' && f.claim != null) return Number(f.claim);
+    const v = Number(objectValue(deal));
+    return isFinite(v) ? v : 0;
+  }
+
+  /**
+   * Расчёт пошлины с показом каждого шага: сумму в заявлении подписывает
+   * человек, и он должен видеть, из чего она сложилась, а не доверять
+   * чёрному ящику.
+   *
+   * Требований в заявлении обычно два — признать сделку недействительной
+   * (пп. 2 п. 1 ст. 333.21 НК РФ, твёрдая ставка) и применить последствия,
+   * то есть вернуть имущество (пп. 1, по цене иска). По обособленным спорам
+   * в деле о банкротстве платится половина (пп. 9).
+   */
+  function feeCalc(deal) {
+    const f = Object.assign({ scale: 'org', fixedPayer: 'person', withFixed: true, halved: true }, deal.fee || {});
+    const claim = claimPrice(deal);
+    const steps = [];
+
+    const byValue = D.feeByValue(claim, f.scale);
+    const scaleName = (D.FEE_SCALES[f.scale] || D.FEE_SCALES.org).name;
+    let sum = byValue.sum;
+    steps.push({
+      text: 'Требование имущественного характера, подлежащее оценке (пп. 1 п. 1 ст. 333.21 НК РФ), ' +
+        'цена иска ' + D.money(claim) + ' руб., ставка для «' + scaleName + '»: ' +
+        D.money(byValue.step.base) + (byValue.step.rate
+          ? ' руб. + ' + (byValue.step.rate * 100).toString().replace('.', ',') + ' % от суммы свыше ' +
+            D.money(byValue.step.over) + ' руб.'
+          : ' руб.'),
+      sum: byValue.sum
+    });
+
+    const fixed = f.withFixed ? (D.FEE_INVALIDATION[f.fixedPayer] || 0) : 0;
+    if (fixed) {
+      sum += fixed;
+      steps.push({
+        text: 'Требование о признании сделки недействительной (пп. 2 п. 1 ст. 333.21 НК РФ), ' +
+          'ставка для «' + (f.fixedPayer === 'org' ? 'организация' : 'физическое лицо') + '»',
+        sum: fixed
+      });
+    }
+
+    const subtotal = sum;
+    let total = subtotal;
+    if (f.halved) {
+      total = subtotal * D.FEE_BANKRUPTCY_SHARE;
+      steps.push({
+        text: 'Обособленный спор в деле о банкротстве — 50 % (пп. 9 п. 1 ст. 333.21 НК РФ)',
+        sum: total
+      });
+    }
+
+    const manual = f.manual !== '' && f.manual != null && isFinite(Number(f.manual));
+    return {
+      claim: claim,
+      byValue: byValue.sum,
+      fixed: fixed,
+      subtotal: subtotal,
+      total: manual ? Number(f.manual) : total,
+      manual: manual,
+      steps: steps
+    };
+  }
+
+  /** Расчёт одной строкой — для подстановки в текст заявления. */
+  function feeText(deal) {
+    const c = feeCalc(deal);
+    if (c.manual) return D.money(c.total) + ' руб.';
+    const parts = c.steps.filter((s) => s.sum !== c.total || !( deal.fee || {}).halved)
+      .map((s) => s.text + ' — ' + D.money(s.sum) + ' руб.');
+    return parts.join('; ') + (( deal.fee || {}).halved
+      ? '; итого с учётом 50 % — ' + D.money(c.total) + ' руб.' : '');
   }
 
   /* ================= условия ================= */
@@ -374,7 +532,8 @@
       },
       case: {
         procedure: kase.procedure,
-        number: kase.number
+        number: kase.number,
+        okb: !!(kase.okb && (kase.okb.contracts || []).length)
       }
     };
   }
@@ -543,20 +702,36 @@
         // в начале и в конце документа выглядел бы дырой, поэтому в вывод
         // попадают только те, между которыми есть текст.
         if (line.trim() === '') {
-          if (!first && out.length && out[out.length - 1].text.trim() !== '') out.push({ text: '', align: b.align, bold: b.bold, blockId: b.id });
+          if (!first && out.length && out[out.length - 1].kind === 'p' && out[out.length - 1].text.trim() !== '') out.push({ kind: 'p', text: '', align: b.align, bold: b.bold, blockId: b.id });
           continue;
         }
-        out.push({ text: line, align: b.align, bold: b.bold, blockId: b.id, first: first });
+        out.push({ kind: 'p', text: line, align: b.align, bold: b.bold, blockId: b.id, first: first });
         first = false;
       }
-      if (out.length && out[out.length - 1].text.trim() === '') out.pop();
+      if (out.length && out[out.length - 1].kind === 'p' && out[out.length - 1].text.trim() === '') out.pop();
+
+      const table = autoTable(b, kase, deal);
+      if (table) out.push(table);
     }
     return out;
   }
 
+  /** Блок с пометкой auto подставляет не текст, а таблицу по отчёту ОКБ. */
+  function autoTable(block, kase, deal) {
+    if (!OKB() || !kase.okb) return null;
+    if (block.auto === 'table_insolvency') return OKB().tableInsolvency(kase.okb, { limit: 30 });
+    if (block.auto === 'table_overdue') return OKB().tableOverdue(kase.okb, deal.date, { limit: 30 });
+    return null;
+  }
+
   /** Плоский текст документа — для версий и сравнения. */
   const documentText = (db, kase, deal) =>
-    buildDocument(db, kase, deal, { mark: false }).map((p) => p.text).join('\n');
+    buildDocument(db, kase, deal, { mark: false })
+      .map((p) => (p.kind === 'table'
+        ? [p.head.join(' | ')].concat(p.rows.map((r) => r.join(' | ')),
+          p.total ? [p.total.join(' | ')] : []).join('\n')
+        : p.text))
+      .join('\n');
 
   /* ================= проверка ================= */
 
@@ -701,9 +876,10 @@
     partyName, partyShort, partyInn, partyOgrn, partyAddress, partyRequisites,
     findParty, debtorOf, counterpartyOf,
     objectDescription, objectValue, dealTypeName, dealTypeGen, periodBefore, gapValue,
+    claimPrice, feeCalc, feeText, debtorGen, managerTitle, debtorBlock,
     context, condContext, evalCondition, render, missingVars,
     documentLine, attachments,
-    library, statementBlocks, buildDocument, documentText,
+    library, statementBlocks, buildDocument, documentText, autoTable,
     validate, saveVersion, restoreVersion, diffLines, cloneDeal,
     MISS_A, MISS_B
   };

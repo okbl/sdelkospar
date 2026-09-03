@@ -8,5 +8,8 @@
     "build": "node build.mjs",
     "test": "node test/run.mjs",
     "font": "node tools/fetch-font.mjs"
+  },
+  "dependencies": {
+    "pdfjs-dist": "^4.10.38"
   }
 }
