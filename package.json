@@ -1,0 +1,12 @@
+{
+  "name": "sdelkospar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Конструктор заявлений об оспаривании сделок должника: анкета → блоки → готовый DOCX/PDF",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node test/run.mjs",
+    "font": "node tools/fetch-font.mjs"
+  }
+}

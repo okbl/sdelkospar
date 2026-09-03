@@ -1,0 +1,14 @@
+# Render Blueprint: статический сайт.
+services:
+  - type: web
+    name: sdelkospar
+    runtime: static
+    buildCommand: ""
+    staticPublishPath: ./dist
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
