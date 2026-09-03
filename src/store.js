@@ -90,12 +90,14 @@
       object: newObject('realty'),
       performance: { state: 'full', date: '', method: '' },
       counter: { state: 'full', debtorValue: '', counterValue: '', note: '', reasons: '' },
+      grounds: [],          // по каким пунктам оспариваем — выбирается первым шагом
       flags: {
-        unequal: false, harm: false, affiliation: false, preference: false, awareness: false
+        unequal: false, harm: false, affiliation: false, preference: false,
+        awareness: false, sham: false
       },
       affiliationGrounds: [], affiliationNote: '',
       preferenceGrounds: [], preferenceNote: '',
-      harmNote: '', awarenessNote: '', circumstances: '',
+      harmNote: '', awarenessNote: '', shamNote: '', circumstances: '',
       documents: [],
       // Документов по сделке несколько: заявление, ходатайство об отсрочке
       // пошлины, предложение о возврате. Данные у них общие, состав блоков —
@@ -379,6 +381,7 @@
       PREFERENCE_GROUNDS: grounds(D.PREFERENCE_GROUNDS, deal.preferenceGrounds, deal.preferenceNote),
       PREFERENCE_NOTE: deal.preferenceNote,
       HARM_NOTE: deal.harmNote,
+      SHAM_NOTE: deal.shamNote,
       AWARENESS_NOTE: deal.awarenessNote,
       CIRCUMSTANCES: deal.circumstances,
 
@@ -543,6 +546,7 @@
         affiliation: !!deal.flags.affiliation,
         preference: !!deal.flags.preference,
         awareness: !!deal.flags.awareness,
+        sham: !!deal.flags.sham,
         hasUnequalPerformance: !!deal.flags.unequal,
         type: deal.type,
         objectType: (deal.object || {}).kind,
@@ -645,6 +649,20 @@
   function attachments(deal) {
     return (deal.documents || []).filter((d) => d.attach !== false).map(documentLine);
   }
+
+  /**
+   * Выбор оснований — единственный источник правды о том, какие правовые
+   * блоки нужны. Флаги пересчитываются из него, а не заводятся отдельно:
+   * иначе они рано или поздно разойдутся с тем, что человек отметил.
+   */
+  function setGrounds(deal, ids) {
+    deal.grounds = (ids || []).slice();
+    for (const g of D.GROUNDS) deal.flags[g.id] = deal.grounds.includes(g.id);
+  }
+
+  const groundNames = (deal) => (deal.grounds || [])
+    .map((id) => D.byId(D.GROUNDS, id))
+    .filter(Boolean);
 
   /* ================= блоки заявления ================= */
 
@@ -912,7 +930,7 @@
   globalThis.ZStore = {
     KEY, SCHEMA, uid, now,
     newDb, newCase, newParty, newDeal, newObject, newDocument, newStatement,
-    kindOf, findStatement, mainStatement,
+    kindOf, findStatement, mainStatement, setGrounds, groundNames,
     load, save, migrate,
     partyName, partyShort, partyInn, partyOgrn, partyAddress, partyRequisites,
     findParty, debtorOf, counterpartyOf,

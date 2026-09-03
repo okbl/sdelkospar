@@ -480,26 +480,37 @@
     const ready = S.mainStatement(d).status === 'ready';
     const docs = (d.documents || []).length;
 
-    const head = `<div class="crumbs"><a href="#/">Мои дела</a><span>›</span>
-        <a href="#/case/${c.id}">${esc(c.number || 'дело')}</a><span>›</span><span>сделка</span></div>
-      <div class="bento anim">
-        <div class="t hero s8">
+    // Пока сделка пустая, большая плитка с прочерком вместо суммы и кнопкой
+    // «Открыть конструктор» только мешает: показываем, что делать дальше.
+    const started = (d.grounds || []).length > 0;
+    const grounds = S.groundNames(d);
+
+    const hero = started
+      ? `<div class="t hero s8">
           <div class="k">${esc(S.dealTypeName(d))}${d.number ? ' № ' + esc(d.number) : ''}</div>
-          <div class="big">${esc(money0(d.amount))}<small> ₽</small></div>
+          ${d.amount !== '' && d.amount != null
+        ? `<div class="big">${esc(money0(d.amount))}<small> ₽</small></div>`
+        : '<h2>Сумма сделки не указана</h2>'}
           <p class="said">${esc(S.partyShort(debtor) || 'должник')} → <b>${esc(S.partyShort(cp) || 'контрагент не выбран')}</b></p>
           <div class="strip">
             <div><b>${esc(D.dateShort(d.date) || '—')}</b>дата сделки</div>
             <div><b>${esc(D.nameOf(D.OBJECT_TYPES, d.object.kind))}</b>объект</div>
             <div><b>${docs}</b>${D.plural(docs, 'документ', 'документа', 'документов')}</div>
-            <div><b>${esc(D.nameOf(D.COUNTER, d.counter.state))}</b>встречное исполнение</div>
           </div>
           <div class="act">
             <button class="btn pri" data-go="#/builder/${c.id}/${d.id}">Открыть конструктор</button>
             <button class="btn" data-act="clone-deal">Создать на основе этой</button>
           </div>
-        </div>
+        </div>`
+      : `<div class="t hero s8">
+          <div class="k">Новая сделка</div>
+          <h2>С чего начать</h2>
+          <p class="said">Выберите ниже, по какому пункту оспариваете сделку. От этого зависят
+            и разделы заявления, и то, какие вопросы приложение задаст дальше.</p>
+        </div>`;
 
-        <div class="t s4">
+    const aside = started
+      ? `<div class="t s4">
           <div class="k">Документы по сделке</div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
             <span class="pill ${ready ? 'ready' : 'draft'}">${ready ? 'Заявление готово' : 'Заявление — черновик'}</span>
@@ -507,33 +518,49 @@
         ? `<span class="chipm w"><span class="dot"></span>не заполнено: ${v.errors.length}</span>`
         : '<span class="chipm"><span class="dot"></span>обязательные поля заполнены</span>'}
           </div>
-          <p class="m">Готовится ${d.statements.length} ${D.plural(d.statements.length, 'документ', 'документа', 'документов')}
-            из ${D.DOC_KINDS.length} возможных. Данные у них общие.</p>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:auto;padding-top:8px">
+          <p class="m">${esc(grounds.map((g) => g.name).join('; ')) || 'Основание не выбрано'}.</p>
+          <div style="margin-top:auto;padding-top:8px">
             <button class="btn btn-sm danger" data-act="del-deal">Удалить сделку</button>
           </div>
-        </div>
-      </div>
+        </div>`
+      : `<div class="t s4">
+          <div class="k">Дальше по шагам</div>
+          <div class="steps" style="margin-top:4px">
+            <div class="stp"><span class="n">1</span><div><b>Основание</b>
+              <span class="m">По какому пункту оспариваем.</span></div></div>
+            <div class="stp"><span class="n">2</span><div><b>Сделка и объект</b>
+              <span class="m">Даты, сумма, контрагент, имущество.</span></div></div>
+            <div class="stp"><span class="n">3</span><div><b>Документы</b>
+              <span class="m">Заявление, ходатайство, предложение.</span></div></div>
+          </div>
+          <div style="margin-top:auto;padding-top:8px">
+            <button class="linkbtn" data-act="del-deal">Удалить сделку</button>
+          </div>
+        </div>`;
+
+    const head = `<div class="crumbs"><a href="#/">Мои дела</a><span>›</span>
+        <a href="#/case/${c.id}">${esc(c.number || 'дело')}</a><span>›</span><span>сделка</span></div>
+      <div class="bento anim">${hero}${aside}</div>
 
       <div class="tabs">
-        ${tab('deal', 'main', 'Основные сведения')}
-        ${tab('deal', 'parties', 'Стороны')}
+        ${tab('deal', 'ground', 'Основание', (d.grounds || []).length || null)}
+        ${tab('deal', 'main', 'Сделка')}
         ${tab('deal', 'object', 'Объект')}
-        ${tab('deal', 'perf', 'Исполнение')}
         ${tab('deal', 'circ', 'Обстоятельства')}
-        ${tab('deal', 'fee', 'Госпошлина')}
+        ${tab('deal', 'fee', 'Пошлина')}
         ${tab('deal', 'docs', 'Документы', docs)}
       </div>`;
 
-    const body = tabs.deal === 'parties' ? dealPartiesTab(c, d)
+    const body = tabs.deal === 'ground' ? dealGroundTab(d)
       : tabs.deal === 'object' ? dealObjectTab(d)
-        : tabs.deal === 'perf' ? dealPerfTab(d)
-          : tabs.deal === 'circ' ? dealCircTab(d)
+        : tabs.deal === 'circ' ? dealCircTab(d)
           : tabs.deal === 'fee' ? dealFeeTab(d)
             : tabs.deal === 'docs' ? dealDocsTab(d)
-              : dealMainTab(d);
+              : dealMainTab(d) + dealPartiesTab(c, d);
 
-    return head + body + dealPapers(c, d);
+    // Список документов нужен, когда сделка уже описана; на шаге выбора
+    // основания он только отвлекает.
+    return head + body + (tabs.deal === 'ground' ? '' : dealPapers(c, d));
   }
 
   /**
@@ -553,10 +580,8 @@
         </div>
         <span class="pill ${st.status === 'ready' ? 'ready' : 'draft'}">${st.status === 'ready' ? 'Готово' : 'Черновик'}</span>
         <div class="sp">
-          <button class="btn btn-sm" data-act="preview-sheets" data-id="${st.id}">Листы</button>
-          <button class="btn btn-sm" data-act="export-docx" data-id="${st.id}">DOCX</button>
           <button class="btn btn-sm pri" data-go="#/builder/${c.id}/${d.id}/${st.id}">Открыть</button>
-          ${st.kind === 'statement' ? '' : `<button class="btn btn-sm danger" data-act="del-doc-kind" data-id="${st.id}">✕</button>`}
+          ${st.kind === 'statement' ? '' : `<button class="btn btn-sm danger" data-act="del-doc-kind" data-id="${st.id}">Убрать</button>`}
         </div>
       </div>`;
     }).join('');
@@ -571,6 +596,36 @@
       ${missing.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
         ${missing.map((k) => `<button class="btn" data-act="add-doc-kind" data-id="${k.id}">+ ${esc(k.short)}</button>`).join('')}
       </div>` : ''}
+    </div>`;
+  }
+
+  /**
+   * Шаг первый: по какому пункту оспариваем. От ответа зависит и состав
+   * заявления, и то, какие вопросы вообще будут заданы дальше, — поэтому
+   * выбор стоит здесь, а не прячется за пятью вопросами «да / нет».
+   */
+  function dealGroundTab(d) {
+    const chosen = new Set(d.grounds || []);
+    const cards = D.GROUNDS.map((g) => `<label class="ground${chosen.has(g.id) ? ' on' : ''}">
+      <input type="checkbox" data-act="toggle-ground" data-id="${g.id}"${chosen.has(g.id) ? ' checked' : ''}>
+      <span class="gb">
+        <b>${esc(g.name)}</b>
+        <span class="law">${esc(g.law)}</span>
+        <span class="m">${esc(g.hint)}</span>
+      </span>
+    </label>`).join('');
+
+    return `<div class="card">
+      <h3>По какому основанию оспариваем сделку?</h3>
+      <p class="m">Можно выбрать несколько. Выбранные основания включат нужные разделы
+        заявления и оставят в анкете только те вопросы, которые к ним относятся.</p>
+      <div class="grounds">${cards}</div>
+      ${chosen.size ? `<div class="note good" style="margin:16px 0 0">
+          Выбрано ${chosen.size} ${D.plural(chosen.size, 'основание', 'основания', 'оснований')}.
+          Дальше — вкладка «Сделка»: даты, сумма и контрагент.
+        </div>`
+        : '<div class="note calm" style="margin:16px 0 0">Пока основание не выбрано, ' +
+          'в заявление войдут только общие разделы.</div>'}
     </div>`;
   }
 
@@ -709,42 +764,90 @@
   }
 
   /** Вопросы, от ответов на которые зависит состав заявления (§8, §9). */
+  /**
+   * Обстоятельства: исполнение сделки и уточнения по выбранным основаниям.
+   * Вопросов, не относящихся к выбранным пунктам, здесь нет — их незачем
+   * задавать.
+   */
   function dealCircTab(d) {
-    const f = d.flags;
-    const q = (bind, value, title, extra) => `<div class="card">
-      <h3>${esc(title)}</h3>
-      <div style="margin-top:10px">${yesNo(bind, value)}</div>
-      ${value ? `<div class="step" style="margin-top:14px">${extra}</div>` : ''}
-    </div>`;
+    const has = (id) => (d.grounds || []).includes(id);
+    const sections = [];
 
-    return q('deal.flags.unequal', f.unequal, 'Есть ли признаки неравноценного встречного исполнения?',
-      `<div class="note calm" style="margin:0">Стоимости берутся из вкладки «Исполнение»: должник —
-        ${esc(D.money(d.counter.debtorValue) || '—')} ₽, встречное — ${esc(D.money(d.counter.counterValue) || '—')} ₽,
-        разница — <b>${esc(D.money(S.gapValue(d)) || '—')} ₽</b>.</div>`) +
+    if (has('unequal')) {
+      sections.push(`<div class="card">
+        <h3>Неравноценность</h3>
+        <p class="m">Пункт 1 статьи 61.2 Закона о банкротстве.</p>
+        <div class="form">
+          ${field({ label: 'Стоимость исполнения должника, ₽', bind: 'deal.counter.debtorValue', money: true })}
+          ${field({ label: 'Стоимость встречного исполнения, ₽', bind: 'deal.counter.counterValue', money: true })}
+          ${field({ label: 'Разница, ₽', value: D.money(S.gapValue(d)) || '—', readonly: true })}
+          ${field({ label: 'Описание обстоятельств', bind: 'deal.counter.note', type: 'textarea', wide: true, rows: 3 })}
+        </div>
+      </div>`);
+    }
+    if (has('harm')) {
+      sections.push(`<div class="card">
+        <h3>Вред кредиторам</h3>
+        <p class="m">Пункт 2 статьи 61.2 Закона о банкротстве.</p>
+        <div class="form">${field({ label: 'В чём выразился вред', bind: 'deal.harmNote', type: 'textarea', wide: true, rows: 3, placeholder: 'Имущество выбыло безвозмездно, требования кредиторов остались непогашенными…' })}</div>
+      </div>`);
+    }
+    if (has('sham')) {
+      sections.push(`<div class="card">
+        <h3>Мнимость</h3>
+        <p class="m">Статья 170 Гражданского кодекса.</p>
+        <div class="form">${field({ label: 'В чём выразилась мнимость', bind: 'deal.shamNote', type: 'textarea', wide: true, rows: 3, placeholder: 'Имущество осталось во владении должника, страхование оформлено позже даты договора…' })}</div>
+      </div>`);
+    }
+    if (has('affiliation')) {
+      sections.push(`<div class="card">
+        <h3>Заинтересованность</h3>
+        <p class="m">Статья 19 Закона о банкротстве.</p>
+        ${checkList('deal.affiliationGrounds', D.AFFILIATION_GROUNDS, d.affiliationGrounds)}
+        <div class="form" style="margin-top:10px">${field({ label: 'Пояснения', bind: 'deal.affiliationNote', type: 'textarea', wide: true, rows: 2 })}</div>
+      </div>`);
+    }
+    if (has('preference')) {
+      sections.push(`<div class="card">
+        <h3>Предпочтение</h3>
+        <p class="m">Статья 61.3 Закона о банкротстве.</p>
+        ${checkList('deal.preferenceGrounds', D.PREFERENCE_GROUNDS, d.preferenceGrounds)}
+        <div class="form" style="margin-top:10px">${field({ label: 'Пояснения', bind: 'deal.preferenceNote', type: 'textarea', wide: true, rows: 2 })}</div>
+      </div>`);
+    }
+    if (has('awareness')) {
+      sections.push(`<div class="card">
+        <h3>Осведомлённость контрагента</h3>
+        <p class="m">Пункт 2 статьи 61.2, статья 61.3.</p>
+        <div class="form">${field({ label: 'Чем подтверждается', bind: 'deal.awarenessNote', type: 'textarea', wide: true, rows: 3 })}</div>
+      </div>`);
+    }
 
-      q('deal.flags.harm', f.harm, 'Причинён ли вред имущественным правам кредиторов?',
-        `<div class="form">${field({ label: 'В чём выразился вред', bind: 'deal.harmNote', type: 'textarea', wide: true, rows: 3, placeholder: 'Имущество выбыло безвозмездно, требования кредиторов остались непогашенными…' })}</div>`) +
-
-      q('deal.flags.affiliation', f.affiliation, 'Есть ли заинтересованность сторон?',
-        `<label class="lb">Основание заинтересованности</label>
-         ${checkList('deal.affiliationGrounds', D.AFFILIATION_GROUNDS, d.affiliationGrounds)}
-         <div class="form" style="margin-top:10px">${field({ label: 'Пояснения', bind: 'deal.affiliationNote', type: 'textarea', wide: true, rows: 2 })}</div>`) +
-
-      q('deal.flags.preference', f.preference, 'Оказано ли предпочтение отдельному кредитору?',
-        `<label class="lb">Основание предпочтения</label>
-         ${checkList('deal.preferenceGrounds', D.PREFERENCE_GROUNDS, d.preferenceGrounds)}
-         <div class="form" style="margin-top:10px">${field({ label: 'Пояснения', bind: 'deal.preferenceNote', type: 'textarea', wide: true, rows: 2 })}</div>`) +
-
-      q('deal.flags.awareness', f.awareness, 'Знал ли контрагент о признаках неплатёжеспособности?',
-        `<div class="form">${field({ label: 'Чем подтверждается', bind: 'deal.awarenessNote', type: 'textarea', wide: true, rows: 3 })}</div>`) +
-
-      `<div class="card">
-        <h3>Дополнительные обстоятельства</h3>
-        <p class="m">Свободный текст, который войдёт в блок «Обстоятельства заключения сделки».</p>
-        <div class="form">${field({ label: '', bind: 'deal.circumstances', type: 'textarea', wide: true, rows: 4 })}</div>
+    return `<div class="card">
+      <h3>Исполнение сделки</h3>
+      <div class="form"><div class="f wide"><label class="lb">Как исполнена сделка</label>
+        ${radios('deal.performance.state', D.PERFORMANCE, d.performance.state)}</div></div>
+      <div class="form" style="margin-top:12px">
+        ${field({ label: 'Дата исполнения', bind: 'deal.performance.date', type: 'date' })}
+        ${field({ label: 'Способ исполнения', bind: 'deal.performance.method', placeholder: 'передача по акту, перечисление на счёт' })}
       </div>
-      <div class="note calm">Ответы «Да» включают соответствующие блоки заявления, «Нет» — выключают.
-        В конструкторе состав блоков можно поправить вручную.</div>`;
+      <div class="form" style="margin-top:12px"><div class="f wide">
+        <label class="lb">Было ли встречное исполнение</label>
+        ${radios('deal.counter.state', D.COUNTER, d.counter.state)}</div></div>
+      ${d.counter.state === 'none'
+        ? `<div class="form step" style="margin-top:12px">${field({ label: 'Причины отсутствия исполнения', bind: 'deal.counter.reasons', type: 'textarea', wide: true, rows: 2 })}</div>`
+        : ''}
+    </div>
+
+    ${sections.join('')}
+
+    <div class="card">
+      <h3>Дополнительные обстоятельства</h3>
+      <p class="m">Свободный текст — войдёт в раздел «Обстоятельства заключения сделки».</p>
+      <div class="form">${field({ label: '', bind: 'deal.circumstances', type: 'textarea', wide: true, rows: 4 })}</div>
+    </div>
+    ${sections.length ? '' : '<div class="note calm">Уточняющих вопросов нет: основание оспаривания ' +
+      'ещё не выбрано. Вернитесь на вкладку «Основание».</div>'}`;
   }
 
   /** Расчёт пошлины показывается по шагам: сумму под заявлением подписывает человек. */
@@ -860,12 +963,12 @@
         </div>
 
         <div class="t s4">
-          <div class="k">Версии документа</div>
-          <div class="v">${versions}</div>
-          <p class="m">Снимок состава блоков и текста: можно вернуться к предыдущей и сравнить построчно.</p>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:auto;padding-top:8px">
-            <button class="btn btn-sm" data-act="save-version">Сохранить версию</button>
-            ${versions ? '<button class="btn btn-sm" data-act="versions">Все версии</button>' : ''}
+          <div class="k">Готовность</div>
+          <div class="v">${on}<small style="font-size:16px;color:var(--ink-3)"> из ${blocks.length}</small></div>
+          <div class="meter"><i class="${on === blocks.length ? 'done' : ''}" style="width:${Math.round(on / blocks.length * 100)}%"></i></div>
+          <p class="m">Разделов включено. Снимок текста можно сохранить и потом сравнить.</p>
+          <div style="margin-top:auto;padding-top:8px">
+            <button class="btn btn-sm" data-act="versions">Версии${versions ? ' · ' + versions : ''}</button>
           </div>
         </div>
       </div>
@@ -877,9 +980,9 @@
               <span class="m">включено ${on} из ${blocks.length}</span></div>
             ${blocks.map(blockRow).join('')}
           </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-sm" data-act="reset-blocks">Собрать заново по ответам</button>
-            <button class="btn btn-sm" data-go="#/blocks">Библиотека блоков</button>
+          <div style="display:flex;gap:14px;flex-wrap:wrap">
+            <button class="linkbtn" data-act="reset-blocks">Собрать заново по основаниям</button>
+            <button class="linkbtn" data-go="#/blocks">Библиотека блоков</button>
           </div>
           <div class="check" id="check">${checkPanel(c, d, st)}</div>
         </div>
@@ -896,11 +999,11 @@
 
   function blockRow(b) {
     const open = openBlocks.has(b.id);
+    // Пометок ровно две: текст правился руками и раздел не относится к выбранным
+    // основаниям. Остальное («обязательный», «свой») человеку ничего не решает.
     const flags = [
-      b.required ? '<span class="flag">обязательный</span>' : '',
-      b.condition ? `<span class="flag cond">${b.available ? 'условие выполнено' : 'условие не выполнено'}</span>` : '',
       b.overridden ? '<span class="flag edit">изменён</span>' : '',
-      b.custom ? '<span class="flag">свой</span>' : ''
+      b.condition && !b.available ? '<span class="flag cond">не по вашему основанию</span>' : ''
     ].filter(Boolean).join('');
 
     return `<div class="blk${b.enabled ? '' : ' off'}" data-block="${b.id}" draggable="${open ? 'false' : 'true'}">
@@ -1343,7 +1446,8 @@
     const d = S.newDeal();
     c.deals.push(d);
     saveNow();
-    tabs.deal = 'main';
+    // Первый вопрос по новой сделке — по какому пункту её оспаривать.
+    tabs.deal = 'ground';
     go('#/deal/' + c.id + '/' + d.id);
   }
 
@@ -1642,8 +1746,7 @@
       if (!el.checked) return;
       const path = el.dataset.bind;
       // Ответы «Да / Нет» хранятся флагом, а не строкой.
-      setPath(path, /^deal\.flags\./.test(path) ? el.value === 'yes' : el.value);
-      if (/^deal\.flags\./.test(path)) syncConditionalBlocks();
+      setPath(path, el.value);
       saveNow();
       if (!inModal) render();
       return;
@@ -1667,20 +1770,6 @@
     if (el.tagName === 'SELECT' && !inModal) render();
     else if (route.name === 'builder') refreshBuilder();
   });
-
-  /**
-   * Ответ на вопрос об обстоятельствах прямо управляет составом заявления (§8):
-   * «Нет» — блок выключается, «Да» — включается. Ручную правку в конструкторе
-   * это переопределит, о чём сказано подсказкой под вопросами.
-   */
-  function syncConditionalBlocks() {
-    const c = currentCase(), d = currentDeal();
-    const st = currentDoc();
-    if (!c || !d || !st || !st.blocks.length) return;
-    for (const b of S.statementBlocks(db, c, d, st)) {
-      if (b.condition) b.ref.enabled = b.available;
-    }
-  }
 
   document.addEventListener('click', (e) => {
     const nav = e.target.closest('[data-go]');
@@ -1781,6 +1870,21 @@
       case 'toggle-attach': {
         const doc = d.documents.find((x) => x.id === id);
         if (doc) { doc.attach = btn.checked; saveNow(); render(); }
+        break;
+      }
+
+      case 'toggle-ground': {
+        const set = new Set(d.grounds || []);
+        if (btn.checked) set.add(id); else set.delete(id);
+        S.setGrounds(d, [...set]);
+        // Состав правовых блоков пересобирается по выбору: он и есть ответ
+        // на вопрос «что доказываем».
+        for (const st of d.statements) {
+          for (const b of S.statementBlocks(db, c, d, st)) {
+            if (b.condition) b.ref.enabled = b.available;
+          }
+        }
+        saveNow(); render();
         break;
       }
 
@@ -1927,7 +2031,6 @@
 
   $('#btn-profile').addEventListener('click', profileModal);
   $('#btn-backup').addEventListener('click', backupModal);
-  $('#btn-blocks').addEventListener('click', () => go('#/blocks'));
 
   addEventListener('hashchange', () => { route = parseHash(); render(); });
   addEventListener('resize', () => { if ($('#sheets')) fitSheets(document); });

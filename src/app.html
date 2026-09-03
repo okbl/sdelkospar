@@ -186,6 +186,18 @@ input[readonly]{background:var(--surface-2);color:var(--ink-2)}
 .radio:hover{border-color:var(--ink-3);color:var(--ink)}
 .radio.on{background:var(--acc);border-color:var(--acc);color:#FBF9F6;font-weight:600}
 .radio input{display:none}
+/* ---------- выбор основания оспаривания ---------- */
+.grounds{display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:10px;margin-top:14px}
+.ground{display:block;border:1px solid var(--line-2);border-radius:var(--r-sm);padding:14px 16px;
+  cursor:pointer;background:var(--surface);transition:border-color .15s,background .15s;position:relative}
+.ground:hover{border-color:var(--ink-3)}
+.ground.on{border-color:var(--acc);background:var(--acc-wash)}
+.ground input{position:absolute;opacity:0;pointer-events:none}
+.ground b{display:block;font-size:14.5px;font-weight:600;letter-spacing:-.015em}
+.ground .law{display:block;font-size:12px;color:var(--acc);font-weight:600;margin:2px 0 6px}
+.ground .m{display:block}
+.ground:has(input:focus-visible){outline:2px solid var(--acc);outline-offset:2px}
+
 /* следующий шаг анкеты появляется мягко, а не выпрыгивает */
 .step{animation:pop .28s both}
 
@@ -388,7 +400,6 @@ tr.click{cursor:pointer}
     <div class="who">Конструктор заявлений для арбитражного управляющего</div>
   </div>
   <div class="act">
-    <button class="btn btn-sm" id="btn-blocks">Библиотека блоков</button>
     <button class="btn btn-sm" id="btn-profile">Профиль</button>
     <button class="btn btn-sm" id="btn-backup">Резервная копия</button>
   </div>
