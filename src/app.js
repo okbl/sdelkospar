@@ -722,48 +722,30 @@
     </div>`;
   }
 
-  function dealPerfTab(d) {
-    const st = d.counter.state;
-    let counterFields;
-    if (st === 'partial') {
-      counterFields = `<div class="form step" style="margin-top:12px">
-        ${field({ label: 'Стоимость исполнения должника, ₽', bind: 'deal.counter.debtorValue', money: true })}
-        ${field({ label: 'Стоимость встречного исполнения, ₽', bind: 'deal.counter.counterValue', money: true })}
-        ${field({ label: 'Размер неисполнения, ₽', value: D.money(S.gapValue(d)) || '—', readonly: true })}
-        ${field({ label: 'Описание обстоятельств', bind: 'deal.counter.note', type: 'textarea', wide: true, rows: 3 })}
-      </div>`;
-    } else if (st === 'none') {
-      counterFields = `<div class="form step" style="margin-top:12px">
-        ${field({ label: 'Причины отсутствия исполнения', bind: 'deal.counter.reasons', type: 'textarea', wide: true, rows: 3 })}
-        ${field({ label: 'Дополнительные обстоятельства', bind: 'deal.counter.note', type: 'textarea', wide: true, rows: 3 })}
-      </div>`;
-    } else {
-      counterFields = `<div class="form step" style="margin-top:12px">
-        ${field({ label: 'Стоимость исполнения должника, ₽', bind: 'deal.counter.debtorValue', money: true })}
-        ${field({ label: 'Стоимость встречного исполнения, ₽', bind: 'deal.counter.counterValue', money: true })}
-        ${field({ label: 'Комментарий', bind: 'deal.counter.note', type: 'textarea', wide: true, rows: 2 })}
-      </div>`;
+  /**
+   * Итог сравнения цены и оценки. Считается на месте: эти цифры уйдут
+   * в заявление, и увидеть их человек должен здесь, а не в готовом документе.
+   */
+  function valuationVerdict(d) {
+    const gap = S.valueGap(d);
+    if (!gap) {
+      return '<div class="note calm" style="margin:14px 0 0">Внесите рыночную стоимость из решения ' +
+        'об оценке — на ней держится всё оспаривание по пункту 1 статьи 61.2.</div>';
     }
-
-    return `<div class="card">
-      <h3>Исполнение сделки</h3>
-      <div class="form"><div class="f wide"><label class="lb">Как исполнена сделка</label>
-        ${radios('deal.performance.state', D.PERFORMANCE, d.performance.state)}</div></div>
-      <div class="form" style="margin-top:12px">
-        ${field({ label: 'Дата исполнения', bind: 'deal.performance.date', type: 'date' })}
-        ${field({ label: 'Способ исполнения', bind: 'deal.performance.method', placeholder: 'передача по акту, перечисление на счёт' })}
-      </div>
-    </div>
-
-    <div class="card">
-      <h3>Встречное исполнение</h3>
-      <p class="m">Было ли встречное исполнение со стороны контрагента?</p>
-      ${radios('deal.counter.state', D.COUNTER, d.counter.state)}
-      ${counterFields}
-    </div>`;
+    if ((d.valuation || {}).gratuitous) {
+      return `<div class="note good" style="margin:14px 0 0">Встречного предоставления нет.
+        В конкурсную массу заявляется <b>${esc(D.money(gap.market))} ₽</b> —
+        рыночная стоимость переданного имущества.</div>`;
+    }
+    if (gap.gap > 0) {
+      return `<div class="note good" style="margin:14px 0 0">Рыночная стоимость выше цены договора
+        ${gap.ratio ? 'в <b>' + esc(S.ratioText(gap.ratio)) + '</b> раза, ' : ''}разница —
+        <b>${esc(D.money(gap.gap))} ₽</b>. Цена иска — ${esc(D.money(gap.market))} ₽.</div>`;
+    }
+    return `<div class="note" style="margin:14px 0 0">Рыночная стоимость не превышает цену
+      договора: неравноценность из этих цифр не следует.</div>`;
   }
 
-  /** Вопросы, от ответов на которые зависит состав заявления (§8, §9). */
   /**
    * Обстоятельства: исполнение сделки и уточнения по выбранным основаниям.
    * Вопросов, не относящихся к выбранным пунктам, здесь нет — их незачем
@@ -774,15 +756,27 @@
     const sections = [];
 
     if (has('unequal')) {
+      const v = d.valuation;
+      const gap = S.valueGap(d);
+      // Итог считается на месте: эти цифры уйдут в заявление, и увидеть их
+      // человек должен здесь, а не в готовом документе.
       sections.push(`<div class="card">
         <h3>Неравноценность</h3>
-        <p class="m">Пункт 1 статьи 61.2 Закона о банкротстве.</p>
-        <div class="form">
-          ${field({ label: 'Стоимость исполнения должника, ₽', bind: 'deal.counter.debtorValue', money: true })}
-          ${field({ label: 'Стоимость встречного исполнения, ₽', bind: 'deal.counter.counterValue', money: true })}
-          ${field({ label: 'Разница, ₽', value: D.money(S.gapValue(d)) || '—', readonly: true })}
-          ${field({ label: 'Описание обстоятельств', bind: 'deal.counter.note', type: 'textarea', wide: true, rows: 3 })}
+        <p class="m">Пункт 1 статьи 61.2 Закона о банкротстве. Сравниваются цена по договору
+          и рыночная стоимость по решению об оценке.</p>
+        <div class="form"><div class="f wide"><label class="lb">Как передано имущество</label>
+          ${radios('deal.valuation.gratuitous', [
+        { id: 'false', name: 'За плату по договору' },
+        { id: 'true', name: 'Безвозмездно' }], String(!!v.gratuitous))}</div></div>
+        <div class="form step" style="margin-top:14px">
+          ${v.gratuitous ? '' : field({ label: 'Цена по договору, ₽', bind: 'deal.valuation.contractPrice',
+          money: true, placeholder: D.money(d.amount) || '0,00', hint: 'Пусто — берётся сумма сделки' })}
+          ${field({ label: 'Рыночная стоимость по решению об оценке, ₽', bind: 'deal.valuation.marketValue', money: true })}
+          ${field({ label: 'Реквизиты решения об оценке', bind: 'deal.valuation.decision', wide: true,
+          placeholder: 'от 01.06.2025 № 3' })}
+          ${field({ label: 'Пояснения', bind: 'deal.valuation.note', type: 'textarea', wide: true, rows: 2 })}
         </div>
+        <div id="valuation-verdict">${valuationVerdict(d)}</div>
       </div>`);
     }
     if (has('harm')) {
@@ -825,18 +819,13 @@
 
     return `<div class="card">
       <h3>Исполнение сделки</h3>
-      <div class="form"><div class="f wide"><label class="lb">Как исполнена сделка</label>
+      <p class="m">Передано ли имущество фактически и когда.</p>
+      <div class="form"><div class="f wide"><label class="lb">Сделка исполнена</label>
         ${radios('deal.performance.state', D.PERFORMANCE, d.performance.state)}</div></div>
       <div class="form" style="margin-top:12px">
         ${field({ label: 'Дата исполнения', bind: 'deal.performance.date', type: 'date' })}
         ${field({ label: 'Способ исполнения', bind: 'deal.performance.method', placeholder: 'передача по акту, перечисление на счёт' })}
       </div>
-      <div class="form" style="margin-top:12px"><div class="f wide">
-        <label class="lb">Было ли встречное исполнение</label>
-        ${radios('deal.counter.state', D.COUNTER, d.counter.state)}</div></div>
-      ${d.counter.state === 'none'
-        ? `<div class="form step" style="margin-top:12px">${field({ label: 'Причины отсутствия исполнения', bind: 'deal.counter.reasons', type: 'textarea', wide: true, rows: 2 })}</div>`
-        : ''}
     </div>
 
     ${sections.join('')}
@@ -851,11 +840,21 @@
   }
 
   /** Расчёт пошлины показывается по шагам: сумму под заявлением подписывает человек. */
-  function dealFeeTab(d) {
+  /** Таблица расчёта — обновляется по мере ввода, а не после перехода. */
+  function feeTable(d) {
     const calc = S.feeCalc(d);
-    const f = d.fee;
     const rows = calc.steps.map((s) => `<tr><td>${esc(s.text)}</td>
       <td class="r">${esc(D.money(s.sum))}</td></tr>`).join('');
+    return `<table><tbody>${rows}
+        <tr class="tot"><td><b>Итого к уплате</b></td>
+          <td class="r"><b>${esc(D.money(calc.total))} ₽</b></td></tr>
+      </tbody></table>
+      ${calc.manual ? '<div class="note calm" style="margin-top:12px">Сумма задана вручную — расчёт выше показан для сверки.</div>' : ''}
+      <p class="hint">Прописью: ${esc(D.moneyWords(calc.total))}.</p>`;
+  }
+
+  function dealFeeTab(d) {
+    const f = d.fee;
 
     return `<div class="card">
       <h3>Государственная пошлина</h3>
@@ -880,12 +879,7 @@
 
     <div class="card">
       <h3>Расчёт</h3>
-      <table><tbody>${rows}
-        <tr class="tot"><td><b>Итого к уплате</b></td>
-          <td class="r"><b>${esc(D.money(calc.total))} ₽</b></td></tr>
-      </tbody></table>
-      ${calc.manual ? '<div class="note calm" style="margin-top:12px">Сумма задана вручную — расчёт выше показан для сверки.</div>' : ''}
-      <p class="hint">Прописью: ${esc(D.moneyWords(calc.total))}.</p>
+      <div id="fee-calc">${feeTable(d)}</div>
     </div>
 
     <div class="note calm">Формула сверена по четырём заявлениям из вашего архива: при цене иска
@@ -1057,6 +1051,20 @@
     }
     if (!html) html = '<div class="note good"><b>Всё заполнено</b> — документ можно выгружать.</div>';
     return html;
+  }
+
+  /**
+   * На экране сделки перерисовка по каждой букве недопустима — уедет каретка.
+   * Но вычисляемые места обновлять надо, иначе человек вводит стоимость,
+   * а итог под полем остаётся старым.
+   */
+  function refreshDeal() {
+    const d = currentDeal();
+    if (!d) return;
+    const verdict = $('#valuation-verdict');
+    if (verdict) verdict.innerHTML = valuationVerdict(d);
+    const fee = $('#fee-calc');
+    if (fee) fee.innerHTML = feeTable(d);
   }
 
   function refreshBuilder() {
@@ -1354,7 +1362,7 @@
     openModal(`<h3>${isNew ? 'Новый блок' : 'Блок «' + esc(block.name) + '»'}</h3>
       <p class="lead">Условие показа записывается как <code>deal.unequal = true</code>. Доступны поля
         deal.unequal, deal.harm, deal.affiliation, deal.preference, deal.awareness, deal.objectType,
-        deal.performance, deal.counter, deal.amount, deal.documents, case.procedure.</p>
+        deal.performance, deal.gratuitous, deal.amount, deal.documents, case.procedure.</p>
       <div class="form">
         ${field({ label: 'Название блока', bind: 'block.name', wide: true, required: true })}
         ${field({ label: 'Описание', bind: 'block.description', wide: true })}
@@ -1717,9 +1725,10 @@
     }
 
     if (!el.dataset.bind || el.type === 'radio' || el.type === 'checkbox') return;
-    setPath(el.dataset.bind, el.value);
+    setPath(el.dataset.bind, el.dataset.kind === 'money' ? normMoney(el.value) : el.value);
     save();
     if (route.name === 'builder') refreshBuilder();
+    else if (route.name === 'deal') refreshDeal();
   });
 
   document.addEventListener('change', (e) => {
@@ -1745,8 +1754,14 @@
     if (el.type === 'radio') {
       if (!el.checked) return;
       const path = el.dataset.bind;
-      // Ответы «Да / Нет» хранятся флагом, а не строкой.
-      setPath(path, el.value);
+      // Часть переключателей отвечает «да / нет» — их значение булево.
+      setPath(path, el.value === 'true' ? true : el.value === 'false' ? false : el.value);
+      // Способ передачи имущества меняет состав правовых блоков так же,
+      // как выбор основания.
+      if (path === 'deal.valuation.gratuitous') {
+        const kase = currentCase(), deal = currentDeal();
+        if (kase && deal) syncBlocks(kase, deal);
+      }
       saveNow();
       if (!inModal) render();
       return;
@@ -1769,6 +1784,7 @@
     // Селект может менять состав полей (тип сделки, тип стороны, контрагент).
     if (el.tagName === 'SELECT' && !inModal) render();
     else if (route.name === 'builder') refreshBuilder();
+    else if (route.name === 'deal') refreshDeal();
   });
 
   document.addEventListener('click', (e) => {

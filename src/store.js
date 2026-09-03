@@ -89,7 +89,16 @@
       counterpartyId: '', otherPartyIds: [],
       object: newObject('realty'),
       performance: { state: 'full', date: '', method: '' },
-      counter: { state: 'full', debtorValue: '', counterValue: '', note: '', reasons: '' },
+      // Неравноценность доказывается двумя цифрами: цена по договору и
+      // рыночная стоимость по решению об оценке. Либо имущество передано
+      // безвозмездно — тогда сравнивать не с чем.
+      valuation: {
+        gratuitous: false,
+        contractPrice: '',   // пусто — берём сумму сделки
+        marketValue: '',
+        decision: '',        // реквизиты решения об оценке
+        note: ''
+      },
       grounds: [],          // по каким пунктам оспариваем — выбирается первым шагом
       flags: {
         unequal: false, harm: false, affiliation: false, preference: false,
@@ -165,6 +174,15 @@
         const proto = newDeal();
         for (const k of Object.keys(proto)) if (d[k] === undefined) d[k] = proto[k];
         d.object = Object.assign(newObject(d.object && d.object.kind), d.object || {});
+        // Раньше неравноценность описывалась парой «исполнение должника /
+        // встречное исполнение». Переносим: то, что отдал должник, — это и есть
+        // рыночная стоимость, то, что получил, — цена по договору.
+        if (d.counter && !d.valuation.marketValue && !d.valuation.contractPrice) {
+          if (d.counter.debtorValue) d.valuation.marketValue = d.counter.debtorValue;
+          if (d.counter.counterValue) d.valuation.contractPrice = d.counter.counterValue;
+          if (d.counter.state === 'none') d.valuation.gratuitous = true;
+          if (d.counter.note || d.counter.reasons) d.valuation.note = d.counter.note || d.counter.reasons;
+        }
         d.statements = (d.statements.length ? d.statements : [newStatement('statement')])
           .map((st) => Object.assign(newStatement(st.kind), st));
       }
@@ -241,6 +259,11 @@
   /** Стоимость объекта: явно указанная, а если её нет — сумма сделки. */
   function objectValue(deal) {
     const o = deal.object || {};
+    // Рыночная стоимость по решению об оценке — то, что взыскивается
+    // при невозможности вернуть имущество в натуре, и то, из чего считается
+    // цена иска.
+    const market = num((deal.valuation || {}).marketValue);
+    if (market != null) return market;
     if (o.value !== '' && o.value != null) return o.value;
     if (o.kind === 'money' && o.sum !== '' && o.sum != null) return o.sum;
     return deal.amount;
@@ -291,8 +314,7 @@
     const proc = D.byId(D.PROCEDURES, kase.procedure);
     const o = deal.object || {};
     const perf = D.byId(D.PERFORMANCE, deal.performance.state);
-    const counter = D.byId(D.COUNTER, deal.counter.state);
-    const gap = gapValue(deal);
+    const gap = valueGap(deal);
     const claim = claimPrice(deal);
     const fee = feeCalc(deal);
     const feeKnown = fee.manual || claim > 0;
@@ -369,12 +391,15 @@
       PERFORMANCE_STATE: perf ? perf.name.toLowerCase() : '',
       PERFORMANCE_DATE: D.dateLong(deal.performance.date),
       PERFORMANCE_METHOD: deal.performance.method,
-      COUNTER_STATE: counter ? counter.name.toLowerCase() : '',
-      DEBTOR_VALUE: D.money(deal.counter.debtorValue),
-      COUNTER_VALUE: D.money(deal.counter.counterValue),
-      COUNTER_GAP: D.money(gap),
-      COUNTER_GAP_WORDS: D.moneyWords(gap),
-      COUNTER_NOTE: deal.counter.note || deal.counter.reasons,
+
+      CONTRACT_PRICE: gap ? D.money(gap.price) : '',
+      MARKET_VALUE: gap ? D.money(gap.market) : '',
+      MARKET_VALUE_WORDS: gap ? D.moneyWords(gap.market) : '',
+      VALUE_GAP: gap ? D.money(gap.gap) : '',
+      VALUE_GAP_WORDS: gap ? D.moneyWords(gap.gap) : '',
+      VALUE_RATIO: gap ? ratioText(gap.ratio) : '',
+      VALUATION_DECISION: (deal.valuation || {}).decision,
+      VALUATION_NOTE: (deal.valuation || {}).note,
 
       AFFILIATION_GROUNDS: grounds(D.AFFILIATION_GROUNDS, deal.affiliationGrounds, deal.affiliationNote),
       AFFILIATION_NOTE: deal.affiliationNote,
@@ -408,14 +433,38 @@
     return v;
   }
 
-  /** Разница между исполнением должника и встречным исполнением. */
-  function gapValue(deal) {
-    const a = Number(deal.counter.debtorValue);
-    if (deal.counter.debtorValue === '' || !isFinite(a)) return '';
-    const b = Number(deal.counter.counterValue);
-    const got = deal.counter.counterValue === '' ? 0 : (isFinite(b) ? b : 0);
-    return a - got;
+  /* ================= оценка ================= */
+
+  const num = (v) => {
+    const n = Number(v);
+    return v === '' || v == null || !isFinite(n) ? null : n;
+  };
+
+  /** Цена по договору: заданная отдельно либо сумма сделки. */
+  const contractPrice = (deal) => {
+    const v = deal.valuation || {};
+    return v.gratuitous ? 0 : (num(v.contractPrice) != null ? num(v.contractPrice) : num(deal.amount));
+  };
+
+  const marketValue = (deal) => num((deal.valuation || {}).marketValue);
+
+  /**
+   * Насколько рыночная стоимость превышает цену сделки. Безвозмездная
+   * передача — не «в бесконечность раз», а отдельный случай: кратность там
+   * не считается вовсе.
+   */
+  function valueGap(deal) {
+    const market = marketValue(deal);
+    if (market == null) return null;
+    const price = contractPrice(deal);
+    const gap = market - (price || 0);
+    const ratio = price > 0 ? market / price : null;
+    return { market: market, price: price || 0, gap: gap, ratio: ratio };
   }
+
+  /** «в 1,43 раза» — так кратность пишут в заявлении. */
+  const ratioText = (r) => (r == null ? '' :
+    (Math.round(r * 100) / 100).toString().replace('.', ','));
 
   /**
    * Должник в родительном падеже. Склоняем только людей: у организации
@@ -547,11 +596,11 @@
         preference: !!deal.flags.preference,
         awareness: !!deal.flags.awareness,
         sham: !!deal.flags.sham,
+        gratuitous: !!(deal.valuation || {}).gratuitous,
         hasUnequalPerformance: !!deal.flags.unequal,
         type: deal.type,
         objectType: (deal.object || {}).kind,
         performance: deal.performance.state,
-        counter: deal.counter.state,
         amount: Number(deal.amount) || 0,
         documents: (deal.documents || []).length
       },
@@ -832,9 +881,14 @@
     }
 
     const on = (id) => blocks.some((b) => b.id === id && b.enabled);
-    if (on('unequal') && (deal.counter.debtorValue === '' || deal.counter.counterValue === '')) {
-      warnings.push('Выбран блок «Неравноценное встречное исполнение», но не заполнены стоимости ' +
-        'исполнения должника и встречного исполнения.');
+    if ((deal.grounds || []).includes('unequal') && marketValue(deal) == null) {
+      warnings.push('Оспаривание по пункту 1 статьи 61.2 держится на рыночной стоимости, ' +
+        'но она не заполнена: внесите её из решения об оценке.');
+    }
+    const vg = valueGap(deal);
+    if (vg && !(deal.valuation || {}).gratuitous && vg.gap <= 0) {
+      warnings.push('Рыночная стоимость не превышает цену договора — неравноценность из этих ' +
+        'цифр не следует.');
     }
     if (on('affiliation') && !(deal.affiliationGrounds || []).length) {
       warnings.push('Выбран блок «Заинтересованность сторон», но основания заинтересованности не указаны.');
@@ -844,9 +898,6 @@
     }
     if (on('attachments') && !attachments(deal).length) {
       warnings.push('Блок «Приложения» включён, но к сделке не приложено ни одного документа.');
-    }
-    if (deal.counter.state === 'partial' && deal.counter.counterValue === '') {
-      warnings.push('Встречное исполнение указано как частичное, но его стоимость не заполнена.');
     }
 
     // Незаполненные переменные включённых блоков
@@ -934,7 +985,8 @@
     load, save, migrate,
     partyName, partyShort, partyInn, partyOgrn, partyAddress, partyRequisites,
     findParty, debtorOf, counterpartyOf,
-    objectDescription, objectValue, dealTypeName, dealTypeGen, periodBefore, gapValue,
+    objectDescription, objectValue, dealTypeName, dealTypeGen, periodBefore,
+    contractPrice, marketValue, valueGap, ratioText,
     claimPrice, feeCalc, feeText, debtorGen, managerTitle, debtorBlock,
     context, condContext, evalCondition, render, missingVars,
     documentLine, attachments,

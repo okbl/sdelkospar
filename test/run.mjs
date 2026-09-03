@@ -183,7 +183,8 @@ group('Состав заявления');
   ok('обязательные включены', on('title').enabled && on('claims').enabled && on('attachments').enabled);
   ok('блок вреда включён по ответу «Да»', on('harm').enabled);
   ok('блок неравноценности выключен по ответу «Нет»', !on('unequal').enabled);
-  ok('условие блока видно в интерфейсе', on('unequal').condition === 'deal.unequal = true');
+  eq('условие блока видно в интерфейсе', on('unequal').condition,
+    'deal.unequal = true AND deal.gratuitous = false');
   ok('порядок сплошной', blocks.every((b, i) => b.ref.order === i));
 
   // Новый блок в библиотеке должен дописаться в конец, а не потеряться.
@@ -277,11 +278,18 @@ group('Проверка перед выгрузкой');
   ok('сумма платежа расходится с суммой сделки',
     S.validate(db4, c4, d4).warnings.some((x) => /отличается от суммы платежа/.test(x)));
 
+  // Оспаривание по пункту 1 держится на рыночной стоимости из решения
+  // об оценке: без неё сравнивать не с чем.
   const { db: db5, c: c5, d: d5 } = sample();
-  d5.flags.unequal = true;
+  S.setGrounds(d5, ['unequal']);
   S.statementBlocks(db5, c5, d5);
-  ok('неравноценность без стоимостей',
-    S.validate(db5, c5, d5).warnings.some((x) => /Неравноценное встречное исполнение/.test(x)));
+  ok('неравноценность без рыночной стоимости',
+    S.validate(db5, c5, d5).warnings.some((x) => /рыночной стоимости/.test(x)));
+
+  d5.valuation.marketValue = '50000';
+  d5.amount = '100000';
+  ok('рынок ниже цены договора — предупреждение',
+    S.validate(db5, c5, d5).warnings.some((x) => /не превышает цену договора/.test(x)));
 }
 
 /* ================= копирование и версии ================= */
@@ -715,6 +723,79 @@ group('Таблицы в заявлении');
   eq('кусков-строк столько же, сколько строк в таблицах',
     flow.filter((x) => x.type === 'row').length,
     tables.reduce((n, t) => n + t.rows.length + (t.total ? 1 : 0), 0));
+}
+
+/* ================= оценка и неравноценность ================= */
+
+/*
+ * Пункт 1 статьи 61.2 доказывается двумя цифрами: цена по договору и рыночная
+ * стоимость по решению об оценке. Числа из заявления пользователя: цена 100 000,
+ * оценка 933 114 — превышение в 9,33 раза.
+ */
+group('Оценка имущества');
+{
+  const { db, c, d } = sample();
+  d.amount = '100000';
+  d.valuation.marketValue = '933114';
+  d.valuation.decision = 'от 01.06.2025 № 3';
+  S.setGrounds(d, ['unequal']);
+
+  const gap = S.valueGap(d);
+  eq('цена по договору', gap.price, 100000);
+  eq('рыночная стоимость', gap.market, 933114);
+  eq('разница', gap.gap, 833114);
+  eq('кратность', S.ratioText(gap.ratio), '9,33');
+
+  const v = S.context(db, c, d);
+  eq('цена в текст', v.CONTRACT_PRICE, D.money(100000));
+  eq('рынок в текст', v.MARKET_VALUE, D.money(933114));
+  eq('кратность в текст', v.VALUE_RATIO, '9,33');
+  eq('реквизиты решения', v.VALUATION_DECISION, 'от 01.06.2025 № 3');
+
+  // Цена иска и пошлина считаются от оценки — так и посчитано в заявлении.
+  eq('цена иска — рыночная стоимость', S.claimPrice(d), 933114);
+  eq('пошлина как в заявлении', S.feeCalc(d).total, 33328);
+
+  // Отдельная цена по договору важнее суммы сделки.
+  d.valuation.contractPrice = '250000';
+  eq('заданная цена договора', S.valueGap(d).price, 250000);
+  d.valuation.contractPrice = '';
+
+  const ids = () => S.statementBlocks(db, c, d).filter((b) => b.enabled && b.condition).map((b) => b.id);
+  ok('за плату — блок сравнения', ids().includes('unequal') && !ids().includes('unequal_free'));
+
+  // Безвозмездная передача — не «в бесконечность раз», а отдельный блок.
+  d.valuation.gratuitous = true;
+  for (const b of S.statementBlocks(db, c, d)) if (b.condition) b.ref.enabled = b.available;
+  eq('цена обнуляется', S.valueGap(d).price, 0);
+  eq('кратность не считается', S.valueGap(d).ratio, null);
+  ok('безвозмездно — другой блок', ids().includes('unequal_free') && !ids().includes('unequal'));
+  ok('в тексте нет встречного предоставления',
+    /встречное предоставление по Сделке отсутствует/.test(S.documentText(db, c, d)));
+}
+
+group('Перенос старой оценки');
+{
+  // До этой правки неравноценность описывалась парой «исполнение должника /
+  // встречное исполнение». Цифры терять нельзя.
+  const old = {
+    schema: 1, profile: {}, cases: [{
+      id: 'c1', parties: [], deals: [{
+        id: 'd1', amount: '100000',
+        counter: { state: 'partial', debtorValue: '933114', counterValue: '100000', note: 'пояснение' },
+        statement: { status: 'draft', blocks: [], versions: [] }
+      }]
+    }], customBlocks: [], edits: {}
+  };
+  const d2 = S.migrate(JSON.parse(JSON.stringify(old))).cases[0].deals[0];
+  eq('исполнение должника стало рыночной стоимостью', d2.valuation.marketValue, '933114');
+  eq('встречное — ценой по договору', d2.valuation.contractPrice, '100000');
+  eq('пояснение сохранено', d2.valuation.note, 'пояснение');
+
+  const free = JSON.parse(JSON.stringify(old));
+  free.cases[0].deals[0].counter.state = 'none';
+  eq('«встречного не было» → безвозмездно',
+    S.migrate(free).cases[0].deals[0].valuation.gratuitous, true);
 }
 
 /* ================= несколько документов по сделке ================= */

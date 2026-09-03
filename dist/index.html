@@ -1737,11 +1737,6 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     { id: 'none', name: 'Не исполнена' }
   ];
 
-  const COUNTER = [
-    { id: 'full', name: 'Да, полностью' },
-    { id: 'partial', name: 'Да, частично' },
-    { id: 'none', name: 'Нет' }
-  ];
 
   const AFFILIATION_GROUNDS = [
     { id: 'director', name: 'Общий руководитель' },
@@ -1912,16 +1907,18 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
       ]
     },
     {
-      group: 'Исполнение', items: [
+      group: 'Исполнение и оценка', items: [
         { name: 'PERFORMANCE_STATE', label: 'Исполнение сделки' },
         { name: 'PERFORMANCE_DATE', label: 'Дата исполнения' },
         { name: 'PERFORMANCE_METHOD', label: 'Способ исполнения' },
-        { name: 'COUNTER_STATE', label: 'Встречное исполнение' },
-        { name: 'DEBTOR_VALUE', label: 'Стоимость исполнения должника' },
-        { name: 'COUNTER_VALUE', label: 'Стоимость встречного исполнения' },
-        { name: 'COUNTER_GAP', label: 'Размер неравноценности' },
-        { name: 'COUNTER_GAP_WORDS', label: 'Размер неравноценности прописью' },
-        { name: 'COUNTER_NOTE', label: 'Обстоятельства встречного исполнения' }
+        { name: 'CONTRACT_PRICE', label: 'Цена по договору' },
+        { name: 'MARKET_VALUE', label: 'Рыночная стоимость по решению об оценке' },
+        { name: 'MARKET_VALUE_WORDS', label: 'Рыночная стоимость прописью' },
+        { name: 'VALUE_GAP', label: 'Разница в стоимости' },
+        { name: 'VALUE_GAP_WORDS', label: 'Разница прописью' },
+        { name: 'VALUE_RATIO', label: 'Во сколько раз рынок выше цены' },
+        { name: 'VALUATION_DECISION', label: 'Реквизиты решения об оценке' },
+        { name: 'VALUATION_NOTE', label: 'Пояснения к оценке' }
       ]
     },
     {
@@ -2046,7 +2043,7 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
       // стоят в разных документах на разных местах, и выводить это из порядка
       // объявления в библиотеке — значит однажды получить подпись в середине.
       blocks: ['header', 'title', 'case_info', 'debtor_info', 'deal_info', 'object_info',
-        'deal_circumstances', 'performance', 'unequal', 'harm', 'sham', 'affiliation',
+        'deal_circumstances', 'performance', 'unequal', 'unequal_free', 'harm', 'sham', 'affiliation',
         'preference', 'awareness', 'okb_insolvency', 'okb_overdue', 'legal_basis',
         'consequences', 'claims', 'fee', 'attachments', 'sign']
     },
@@ -2174,19 +2171,21 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
       group: 'Фактические обстоятельства',
       template:
         'Сделка {{PERFORMANCE_STATE}}. Исполнение произведено {{PERFORMANCE_DATE}} способом: ' +
-        '{{PERFORMANCE_METHOD}}.\n' +
-        'Встречное исполнение со стороны {{COUNTERPARTY_SHORT}}: {{COUNTER_STATE}}. {{COUNTER_NOTE}}'
+        '{{PERFORMANCE_METHOD}}.'
     },
     {
       id: 'unequal',
       name: '7. Неравноценное встречное исполнение',
       description: 'Пункт 1 статьи 61.2 Закона о банкротстве.',
       group: 'Правовые основания',
-      condition: 'deal.unequal = true',
+      condition: 'deal.unequal = true AND deal.gratuitous = false',
       template:
-        'Стоимость переданного должником по Сделке имущества составила {{DEBTOR_VALUE}} руб., ' +
-        'тогда как встречное исполнение со стороны {{COUNTERPARTY_SHORT}} составило ' +
-        '{{COUNTER_VALUE}} руб. Разница составляет {{COUNTER_GAP}} руб. ({{COUNTER_GAP_WORDS}}).\n' +
+        'Стоимость имущества в соответствии с Договором составила {{CONTRACT_PRICE}} руб. ' +
+        'Согласно решению об оценке {{MANAGER_ROLE_GEN}} {{VALUATION_DECISION}} рыночная ' +
+        'стоимость этого имущества составляет {{MARKET_VALUE}} руб. ({{MARKET_VALUE_WORDS}}), ' +
+        'что превышает стоимость отчуждения имущества должником в результате оспариваемой сделки ' +
+        'в {{VALUE_RATIO}} раза. Разница составляет {{VALUE_GAP}} руб. ({{VALUE_GAP_WORDS}}). ' +
+        '{{VALUATION_NOTE}}\n' +
         'Согласно пункту 1 статьи 61.2 Закона о банкротстве сделка, совершённая должником ' +
         'в течение одного года до принятия заявления о признании банкротом или после принятия ' +
         'указанного заявления, может быть признана недействительной при неравноценном встречном ' +
@@ -2194,6 +2193,26 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
         'существенно в худшую для должника сторону отличается от цены, при которой в сравнимых ' +
         'обстоятельствах совершаются аналогичные сделки.\n' +
         'Таким образом, Сделка совершена при неравноценном встречном исполнении.'
+    },
+    {
+      id: 'unequal_free',
+      name: 'Безвозмездная передача имущества',
+      description: 'Пункт 1 статьи 61.2: встречного предоставления не было вовсе.',
+      group: 'Правовые основания',
+      condition: 'deal.unequal = true AND deal.gratuitous = true',
+      template:
+        'Имущество передано должником безвозмездно: встречное предоставление по Сделке ' +
+        'отсутствует. Согласно решению об оценке {{MANAGER_ROLE_GEN}} {{VALUATION_DECISION}} ' +
+        'рыночная стоимость переданного имущества составляет {{MARKET_VALUE}} руб. ' +
+        '({{MARKET_VALUE_WORDS}}). {{VALUATION_NOTE}}\n' +
+        'Согласно пункту 1 статьи 61.2 Закона о банкротстве сделка, совершённая должником ' +
+        'в течение одного года до принятия заявления о признании банкротом или после принятия ' +
+        'указанного заявления, может быть признана недействительной при неравноценном встречном ' +
+        'исполнении обязательств другой стороной сделки.\n' +
+        'Неравноценным встречным исполнением обязательств признаётся, в частности, любая передача ' +
+        'имущества, если рыночная стоимость переданного должником имущества существенно превышает ' +
+        'стоимость полученного встречного исполнения. Безвозмездная передача имущества является ' +
+        'крайним случаем такой неравноценности.'
     },
     {
       id: 'harm',
@@ -2595,7 +2614,7 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     DEAL_TYPES, OBJECT_TYPES, PROCEDURES, PARTY_KINDS, DOC_TYPES,
     FEE_SCALES, FEE_INVALIDATION, FEE_BANKRUPTCY_SHARE, feeByValue,
     DOC_KINDS, ALL_KINDS, GROUNDS,
-    PERFORMANCE, COUNTER, AFFILIATION_GROUNDS, PREFERENCE_GROUNDS,
+    PERFORMANCE, AFFILIATION_GROUNDS, PREFERENCE_GROUNDS,
     CURRENCIES, REALTY_KINDS,
     VARS, VAR_INDEX, BLOCKS,
     byId, nameOf
@@ -3204,7 +3223,16 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
       counterpartyId: '', otherPartyIds: [],
       object: newObject('realty'),
       performance: { state: 'full', date: '', method: '' },
-      counter: { state: 'full', debtorValue: '', counterValue: '', note: '', reasons: '' },
+      // Неравноценность доказывается двумя цифрами: цена по договору и
+      // рыночная стоимость по решению об оценке. Либо имущество передано
+      // безвозмездно — тогда сравнивать не с чем.
+      valuation: {
+        gratuitous: false,
+        contractPrice: '',   // пусто — берём сумму сделки
+        marketValue: '',
+        decision: '',        // реквизиты решения об оценке
+        note: ''
+      },
       grounds: [],          // по каким пунктам оспариваем — выбирается первым шагом
       flags: {
         unequal: false, harm: false, affiliation: false, preference: false,
@@ -3280,6 +3308,15 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
         const proto = newDeal();
         for (const k of Object.keys(proto)) if (d[k] === undefined) d[k] = proto[k];
         d.object = Object.assign(newObject(d.object && d.object.kind), d.object || {});
+        // Раньше неравноценность описывалась парой «исполнение должника /
+        // встречное исполнение». Переносим: то, что отдал должник, — это и есть
+        // рыночная стоимость, то, что получил, — цена по договору.
+        if (d.counter && !d.valuation.marketValue && !d.valuation.contractPrice) {
+          if (d.counter.debtorValue) d.valuation.marketValue = d.counter.debtorValue;
+          if (d.counter.counterValue) d.valuation.contractPrice = d.counter.counterValue;
+          if (d.counter.state === 'none') d.valuation.gratuitous = true;
+          if (d.counter.note || d.counter.reasons) d.valuation.note = d.counter.note || d.counter.reasons;
+        }
         d.statements = (d.statements.length ? d.statements : [newStatement('statement')])
           .map((st) => Object.assign(newStatement(st.kind), st));
       }
@@ -3356,6 +3393,11 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
   /** Стоимость объекта: явно указанная, а если её нет — сумма сделки. */
   function objectValue(deal) {
     const o = deal.object || {};
+    // Рыночная стоимость по решению об оценке — то, что взыскивается
+    // при невозможности вернуть имущество в натуре, и то, из чего считается
+    // цена иска.
+    const market = num((deal.valuation || {}).marketValue);
+    if (market != null) return market;
     if (o.value !== '' && o.value != null) return o.value;
     if (o.kind === 'money' && o.sum !== '' && o.sum != null) return o.sum;
     return deal.amount;
@@ -3406,8 +3448,7 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     const proc = D.byId(D.PROCEDURES, kase.procedure);
     const o = deal.object || {};
     const perf = D.byId(D.PERFORMANCE, deal.performance.state);
-    const counter = D.byId(D.COUNTER, deal.counter.state);
-    const gap = gapValue(deal);
+    const gap = valueGap(deal);
     const claim = claimPrice(deal);
     const fee = feeCalc(deal);
     const feeKnown = fee.manual || claim > 0;
@@ -3484,12 +3525,15 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
       PERFORMANCE_STATE: perf ? perf.name.toLowerCase() : '',
       PERFORMANCE_DATE: D.dateLong(deal.performance.date),
       PERFORMANCE_METHOD: deal.performance.method,
-      COUNTER_STATE: counter ? counter.name.toLowerCase() : '',
-      DEBTOR_VALUE: D.money(deal.counter.debtorValue),
-      COUNTER_VALUE: D.money(deal.counter.counterValue),
-      COUNTER_GAP: D.money(gap),
-      COUNTER_GAP_WORDS: D.moneyWords(gap),
-      COUNTER_NOTE: deal.counter.note || deal.counter.reasons,
+
+      CONTRACT_PRICE: gap ? D.money(gap.price) : '',
+      MARKET_VALUE: gap ? D.money(gap.market) : '',
+      MARKET_VALUE_WORDS: gap ? D.moneyWords(gap.market) : '',
+      VALUE_GAP: gap ? D.money(gap.gap) : '',
+      VALUE_GAP_WORDS: gap ? D.moneyWords(gap.gap) : '',
+      VALUE_RATIO: gap ? ratioText(gap.ratio) : '',
+      VALUATION_DECISION: (deal.valuation || {}).decision,
+      VALUATION_NOTE: (deal.valuation || {}).note,
 
       AFFILIATION_GROUNDS: grounds(D.AFFILIATION_GROUNDS, deal.affiliationGrounds, deal.affiliationNote),
       AFFILIATION_NOTE: deal.affiliationNote,
@@ -3523,14 +3567,38 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     return v;
   }
 
-  /** Разница между исполнением должника и встречным исполнением. */
-  function gapValue(deal) {
-    const a = Number(deal.counter.debtorValue);
-    if (deal.counter.debtorValue === '' || !isFinite(a)) return '';
-    const b = Number(deal.counter.counterValue);
-    const got = deal.counter.counterValue === '' ? 0 : (isFinite(b) ? b : 0);
-    return a - got;
+  /* ================= оценка ================= */
+
+  const num = (v) => {
+    const n = Number(v);
+    return v === '' || v == null || !isFinite(n) ? null : n;
+  };
+
+  /** Цена по договору: заданная отдельно либо сумма сделки. */
+  const contractPrice = (deal) => {
+    const v = deal.valuation || {};
+    return v.gratuitous ? 0 : (num(v.contractPrice) != null ? num(v.contractPrice) : num(deal.amount));
+  };
+
+  const marketValue = (deal) => num((deal.valuation || {}).marketValue);
+
+  /**
+   * Насколько рыночная стоимость превышает цену сделки. Безвозмездная
+   * передача — не «в бесконечность раз», а отдельный случай: кратность там
+   * не считается вовсе.
+   */
+  function valueGap(deal) {
+    const market = marketValue(deal);
+    if (market == null) return null;
+    const price = contractPrice(deal);
+    const gap = market - (price || 0);
+    const ratio = price > 0 ? market / price : null;
+    return { market: market, price: price || 0, gap: gap, ratio: ratio };
   }
+
+  /** «в 1,43 раза» — так кратность пишут в заявлении. */
+  const ratioText = (r) => (r == null ? '' :
+    (Math.round(r * 100) / 100).toString().replace('.', ','));
 
   /**
    * Должник в родительном падеже. Склоняем только людей: у организации
@@ -3662,11 +3730,11 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
         preference: !!deal.flags.preference,
         awareness: !!deal.flags.awareness,
         sham: !!deal.flags.sham,
+        gratuitous: !!(deal.valuation || {}).gratuitous,
         hasUnequalPerformance: !!deal.flags.unequal,
         type: deal.type,
         objectType: (deal.object || {}).kind,
         performance: deal.performance.state,
-        counter: deal.counter.state,
         amount: Number(deal.amount) || 0,
         documents: (deal.documents || []).length
       },
@@ -3947,9 +4015,14 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     }
 
     const on = (id) => blocks.some((b) => b.id === id && b.enabled);
-    if (on('unequal') && (deal.counter.debtorValue === '' || deal.counter.counterValue === '')) {
-      warnings.push('Выбран блок «Неравноценное встречное исполнение», но не заполнены стоимости ' +
-        'исполнения должника и встречного исполнения.');
+    if ((deal.grounds || []).includes('unequal') && marketValue(deal) == null) {
+      warnings.push('Оспаривание по пункту 1 статьи 61.2 держится на рыночной стоимости, ' +
+        'но она не заполнена: внесите её из решения об оценке.');
+    }
+    const vg = valueGap(deal);
+    if (vg && !(deal.valuation || {}).gratuitous && vg.gap <= 0) {
+      warnings.push('Рыночная стоимость не превышает цену договора — неравноценность из этих ' +
+        'цифр не следует.');
     }
     if (on('affiliation') && !(deal.affiliationGrounds || []).length) {
       warnings.push('Выбран блок «Заинтересованность сторон», но основания заинтересованности не указаны.');
@@ -3959,9 +4032,6 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     }
     if (on('attachments') && !attachments(deal).length) {
       warnings.push('Блок «Приложения» включён, но к сделке не приложено ни одного документа.');
-    }
-    if (deal.counter.state === 'partial' && deal.counter.counterValue === '') {
-      warnings.push('Встречное исполнение указано как частичное, но его стоимость не заполнена.');
     }
 
     // Незаполненные переменные включённых блоков
@@ -4049,7 +4119,8 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     load, save, migrate,
     partyName, partyShort, partyInn, partyOgrn, partyAddress, partyRequisites,
     findParty, debtorOf, counterpartyOf,
-    objectDescription, objectValue, dealTypeName, dealTypeGen, periodBefore, gapValue,
+    objectDescription, objectValue, dealTypeName, dealTypeGen, periodBefore,
+    contractPrice, marketValue, valueGap, ratioText,
     claimPrice, feeCalc, feeText, debtorGen, managerTitle, debtorBlock,
     context, condContext, evalCondition, render, missingVars,
     documentLine, attachments,
@@ -5221,48 +5292,30 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     </div>`;
   }
 
-  function dealPerfTab(d) {
-    const st = d.counter.state;
-    let counterFields;
-    if (st === 'partial') {
-      counterFields = `<div class="form step" style="margin-top:12px">
-        ${field({ label: 'Стоимость исполнения должника, ₽', bind: 'deal.counter.debtorValue', money: true })}
-        ${field({ label: 'Стоимость встречного исполнения, ₽', bind: 'deal.counter.counterValue', money: true })}
-        ${field({ label: 'Размер неисполнения, ₽', value: D.money(S.gapValue(d)) || '—', readonly: true })}
-        ${field({ label: 'Описание обстоятельств', bind: 'deal.counter.note', type: 'textarea', wide: true, rows: 3 })}
-      </div>`;
-    } else if (st === 'none') {
-      counterFields = `<div class="form step" style="margin-top:12px">
-        ${field({ label: 'Причины отсутствия исполнения', bind: 'deal.counter.reasons', type: 'textarea', wide: true, rows: 3 })}
-        ${field({ label: 'Дополнительные обстоятельства', bind: 'deal.counter.note', type: 'textarea', wide: true, rows: 3 })}
-      </div>`;
-    } else {
-      counterFields = `<div class="form step" style="margin-top:12px">
-        ${field({ label: 'Стоимость исполнения должника, ₽', bind: 'deal.counter.debtorValue', money: true })}
-        ${field({ label: 'Стоимость встречного исполнения, ₽', bind: 'deal.counter.counterValue', money: true })}
-        ${field({ label: 'Комментарий', bind: 'deal.counter.note', type: 'textarea', wide: true, rows: 2 })}
-      </div>`;
+  /**
+   * Итог сравнения цены и оценки. Считается на месте: эти цифры уйдут
+   * в заявление, и увидеть их человек должен здесь, а не в готовом документе.
+   */
+  function valuationVerdict(d) {
+    const gap = S.valueGap(d);
+    if (!gap) {
+      return '<div class="note calm" style="margin:14px 0 0">Внесите рыночную стоимость из решения ' +
+        'об оценке — на ней держится всё оспаривание по пункту 1 статьи 61.2.</div>';
     }
-
-    return `<div class="card">
-      <h3>Исполнение сделки</h3>
-      <div class="form"><div class="f wide"><label class="lb">Как исполнена сделка</label>
-        ${radios('deal.performance.state', D.PERFORMANCE, d.performance.state)}</div></div>
-      <div class="form" style="margin-top:12px">
-        ${field({ label: 'Дата исполнения', bind: 'deal.performance.date', type: 'date' })}
-        ${field({ label: 'Способ исполнения', bind: 'deal.performance.method', placeholder: 'передача по акту, перечисление на счёт' })}
-      </div>
-    </div>
-
-    <div class="card">
-      <h3>Встречное исполнение</h3>
-      <p class="m">Было ли встречное исполнение со стороны контрагента?</p>
-      ${radios('deal.counter.state', D.COUNTER, d.counter.state)}
-      ${counterFields}
-    </div>`;
+    if ((d.valuation || {}).gratuitous) {
+      return `<div class="note good" style="margin:14px 0 0">Встречного предоставления нет.
+        В конкурсную массу заявляется <b>${esc(D.money(gap.market))} ₽</b> —
+        рыночная стоимость переданного имущества.</div>`;
+    }
+    if (gap.gap > 0) {
+      return `<div class="note good" style="margin:14px 0 0">Рыночная стоимость выше цены договора
+        ${gap.ratio ? 'в <b>' + esc(S.ratioText(gap.ratio)) + '</b> раза, ' : ''}разница —
+        <b>${esc(D.money(gap.gap))} ₽</b>. Цена иска — ${esc(D.money(gap.market))} ₽.</div>`;
+    }
+    return `<div class="note" style="margin:14px 0 0">Рыночная стоимость не превышает цену
+      договора: неравноценность из этих цифр не следует.</div>`;
   }
 
-  /** Вопросы, от ответов на которые зависит состав заявления (§8, §9). */
   /**
    * Обстоятельства: исполнение сделки и уточнения по выбранным основаниям.
    * Вопросов, не относящихся к выбранным пунктам, здесь нет — их незачем
@@ -5273,15 +5326,27 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     const sections = [];
 
     if (has('unequal')) {
+      const v = d.valuation;
+      const gap = S.valueGap(d);
+      // Итог считается на месте: эти цифры уйдут в заявление, и увидеть их
+      // человек должен здесь, а не в готовом документе.
       sections.push(`<div class="card">
         <h3>Неравноценность</h3>
-        <p class="m">Пункт 1 статьи 61.2 Закона о банкротстве.</p>
-        <div class="form">
-          ${field({ label: 'Стоимость исполнения должника, ₽', bind: 'deal.counter.debtorValue', money: true })}
-          ${field({ label: 'Стоимость встречного исполнения, ₽', bind: 'deal.counter.counterValue', money: true })}
-          ${field({ label: 'Разница, ₽', value: D.money(S.gapValue(d)) || '—', readonly: true })}
-          ${field({ label: 'Описание обстоятельств', bind: 'deal.counter.note', type: 'textarea', wide: true, rows: 3 })}
+        <p class="m">Пункт 1 статьи 61.2 Закона о банкротстве. Сравниваются цена по договору
+          и рыночная стоимость по решению об оценке.</p>
+        <div class="form"><div class="f wide"><label class="lb">Как передано имущество</label>
+          ${radios('deal.valuation.gratuitous', [
+        { id: 'false', name: 'За плату по договору' },
+        { id: 'true', name: 'Безвозмездно' }], String(!!v.gratuitous))}</div></div>
+        <div class="form step" style="margin-top:14px">
+          ${v.gratuitous ? '' : field({ label: 'Цена по договору, ₽', bind: 'deal.valuation.contractPrice',
+          money: true, placeholder: D.money(d.amount) || '0,00', hint: 'Пусто — берётся сумма сделки' })}
+          ${field({ label: 'Рыночная стоимость по решению об оценке, ₽', bind: 'deal.valuation.marketValue', money: true })}
+          ${field({ label: 'Реквизиты решения об оценке', bind: 'deal.valuation.decision', wide: true,
+          placeholder: 'от 01.06.2025 № 3' })}
+          ${field({ label: 'Пояснения', bind: 'deal.valuation.note', type: 'textarea', wide: true, rows: 2 })}
         </div>
+        <div id="valuation-verdict">${valuationVerdict(d)}</div>
       </div>`);
     }
     if (has('harm')) {
@@ -5324,18 +5389,13 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
 
     return `<div class="card">
       <h3>Исполнение сделки</h3>
-      <div class="form"><div class="f wide"><label class="lb">Как исполнена сделка</label>
+      <p class="m">Передано ли имущество фактически и когда.</p>
+      <div class="form"><div class="f wide"><label class="lb">Сделка исполнена</label>
         ${radios('deal.performance.state', D.PERFORMANCE, d.performance.state)}</div></div>
       <div class="form" style="margin-top:12px">
         ${field({ label: 'Дата исполнения', bind: 'deal.performance.date', type: 'date' })}
         ${field({ label: 'Способ исполнения', bind: 'deal.performance.method', placeholder: 'передача по акту, перечисление на счёт' })}
       </div>
-      <div class="form" style="margin-top:12px"><div class="f wide">
-        <label class="lb">Было ли встречное исполнение</label>
-        ${radios('deal.counter.state', D.COUNTER, d.counter.state)}</div></div>
-      ${d.counter.state === 'none'
-        ? `<div class="form step" style="margin-top:12px">${field({ label: 'Причины отсутствия исполнения', bind: 'deal.counter.reasons', type: 'textarea', wide: true, rows: 2 })}</div>`
-        : ''}
     </div>
 
     ${sections.join('')}
@@ -5350,11 +5410,21 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
   }
 
   /** Расчёт пошлины показывается по шагам: сумму под заявлением подписывает человек. */
-  function dealFeeTab(d) {
+  /** Таблица расчёта — обновляется по мере ввода, а не после перехода. */
+  function feeTable(d) {
     const calc = S.feeCalc(d);
-    const f = d.fee;
     const rows = calc.steps.map((s) => `<tr><td>${esc(s.text)}</td>
       <td class="r">${esc(D.money(s.sum))}</td></tr>`).join('');
+    return `<table><tbody>${rows}
+        <tr class="tot"><td><b>Итого к уплате</b></td>
+          <td class="r"><b>${esc(D.money(calc.total))} ₽</b></td></tr>
+      </tbody></table>
+      ${calc.manual ? '<div class="note calm" style="margin-top:12px">Сумма задана вручную — расчёт выше показан для сверки.</div>' : ''}
+      <p class="hint">Прописью: ${esc(D.moneyWords(calc.total))}.</p>`;
+  }
+
+  function dealFeeTab(d) {
+    const f = d.fee;
 
     return `<div class="card">
       <h3>Государственная пошлина</h3>
@@ -5379,12 +5449,7 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
 
     <div class="card">
       <h3>Расчёт</h3>
-      <table><tbody>${rows}
-        <tr class="tot"><td><b>Итого к уплате</b></td>
-          <td class="r"><b>${esc(D.money(calc.total))} ₽</b></td></tr>
-      </tbody></table>
-      ${calc.manual ? '<div class="note calm" style="margin-top:12px">Сумма задана вручную — расчёт выше показан для сверки.</div>' : ''}
-      <p class="hint">Прописью: ${esc(D.moneyWords(calc.total))}.</p>
+      <div id="fee-calc">${feeTable(d)}</div>
     </div>
 
     <div class="note calm">Формула сверена по четырём заявлениям из вашего архива: при цене иска
@@ -5556,6 +5621,20 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     }
     if (!html) html = '<div class="note good"><b>Всё заполнено</b> — документ можно выгружать.</div>';
     return html;
+  }
+
+  /**
+   * На экране сделки перерисовка по каждой букве недопустима — уедет каретка.
+   * Но вычисляемые места обновлять надо, иначе человек вводит стоимость,
+   * а итог под полем остаётся старым.
+   */
+  function refreshDeal() {
+    const d = currentDeal();
+    if (!d) return;
+    const verdict = $('#valuation-verdict');
+    if (verdict) verdict.innerHTML = valuationVerdict(d);
+    const fee = $('#fee-calc');
+    if (fee) fee.innerHTML = feeTable(d);
   }
 
   function refreshBuilder() {
@@ -5853,7 +5932,7 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     openModal(`<h3>${isNew ? 'Новый блок' : 'Блок «' + esc(block.name) + '»'}</h3>
       <p class="lead">Условие показа записывается как <code>deal.unequal = true</code>. Доступны поля
         deal.unequal, deal.harm, deal.affiliation, deal.preference, deal.awareness, deal.objectType,
-        deal.performance, deal.counter, deal.amount, deal.documents, case.procedure.</p>
+        deal.performance, deal.gratuitous, deal.amount, deal.documents, case.procedure.</p>
       <div class="form">
         ${field({ label: 'Название блока', bind: 'block.name', wide: true, required: true })}
         ${field({ label: 'Описание', bind: 'block.description', wide: true })}
@@ -6216,9 +6295,10 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     }
 
     if (!el.dataset.bind || el.type === 'radio' || el.type === 'checkbox') return;
-    setPath(el.dataset.bind, el.value);
+    setPath(el.dataset.bind, el.dataset.kind === 'money' ? normMoney(el.value) : el.value);
     save();
     if (route.name === 'builder') refreshBuilder();
+    else if (route.name === 'deal') refreshDeal();
   });
 
   document.addEventListener('change', (e) => {
@@ -6244,8 +6324,14 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     if (el.type === 'radio') {
       if (!el.checked) return;
       const path = el.dataset.bind;
-      // Ответы «Да / Нет» хранятся флагом, а не строкой.
-      setPath(path, el.value);
+      // Часть переключателей отвечает «да / нет» — их значение булево.
+      setPath(path, el.value === 'true' ? true : el.value === 'false' ? false : el.value);
+      // Способ передачи имущества меняет состав правовых блоков так же,
+      // как выбор основания.
+      if (path === 'deal.valuation.gratuitous') {
+        const kase = currentCase(), deal = currentDeal();
+        if (kase && deal) syncBlocks(kase, deal);
+      }
       saveNow();
       if (!inModal) render();
       return;
@@ -6268,6 +6354,7 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     // Селект может менять состав полей (тип сделки, тип стороны, контрагент).
     if (el.tagName === 'SELECT' && !inModal) render();
     else if (route.name === 'builder') refreshBuilder();
+    else if (route.name === 'deal') refreshDeal();
   });
 
   document.addEventListener('click', (e) => {

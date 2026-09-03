@@ -263,11 +263,6 @@
     { id: 'none', name: 'Не исполнена' }
   ];
 
-  const COUNTER = [
-    { id: 'full', name: 'Да, полностью' },
-    { id: 'partial', name: 'Да, частично' },
-    { id: 'none', name: 'Нет' }
-  ];
 
   const AFFILIATION_GROUNDS = [
     { id: 'director', name: 'Общий руководитель' },
@@ -438,16 +433,18 @@
       ]
     },
     {
-      group: 'Исполнение', items: [
+      group: 'Исполнение и оценка', items: [
         { name: 'PERFORMANCE_STATE', label: 'Исполнение сделки' },
         { name: 'PERFORMANCE_DATE', label: 'Дата исполнения' },
         { name: 'PERFORMANCE_METHOD', label: 'Способ исполнения' },
-        { name: 'COUNTER_STATE', label: 'Встречное исполнение' },
-        { name: 'DEBTOR_VALUE', label: 'Стоимость исполнения должника' },
-        { name: 'COUNTER_VALUE', label: 'Стоимость встречного исполнения' },
-        { name: 'COUNTER_GAP', label: 'Размер неравноценности' },
-        { name: 'COUNTER_GAP_WORDS', label: 'Размер неравноценности прописью' },
-        { name: 'COUNTER_NOTE', label: 'Обстоятельства встречного исполнения' }
+        { name: 'CONTRACT_PRICE', label: 'Цена по договору' },
+        { name: 'MARKET_VALUE', label: 'Рыночная стоимость по решению об оценке' },
+        { name: 'MARKET_VALUE_WORDS', label: 'Рыночная стоимость прописью' },
+        { name: 'VALUE_GAP', label: 'Разница в стоимости' },
+        { name: 'VALUE_GAP_WORDS', label: 'Разница прописью' },
+        { name: 'VALUE_RATIO', label: 'Во сколько раз рынок выше цены' },
+        { name: 'VALUATION_DECISION', label: 'Реквизиты решения об оценке' },
+        { name: 'VALUATION_NOTE', label: 'Пояснения к оценке' }
       ]
     },
     {
@@ -572,7 +569,7 @@
       // стоят в разных документах на разных местах, и выводить это из порядка
       // объявления в библиотеке — значит однажды получить подпись в середине.
       blocks: ['header', 'title', 'case_info', 'debtor_info', 'deal_info', 'object_info',
-        'deal_circumstances', 'performance', 'unequal', 'harm', 'sham', 'affiliation',
+        'deal_circumstances', 'performance', 'unequal', 'unequal_free', 'harm', 'sham', 'affiliation',
         'preference', 'awareness', 'okb_insolvency', 'okb_overdue', 'legal_basis',
         'consequences', 'claims', 'fee', 'attachments', 'sign']
     },
@@ -700,19 +697,21 @@
       group: 'Фактические обстоятельства',
       template:
         'Сделка {{PERFORMANCE_STATE}}. Исполнение произведено {{PERFORMANCE_DATE}} способом: ' +
-        '{{PERFORMANCE_METHOD}}.\n' +
-        'Встречное исполнение со стороны {{COUNTERPARTY_SHORT}}: {{COUNTER_STATE}}. {{COUNTER_NOTE}}'
+        '{{PERFORMANCE_METHOD}}.'
     },
     {
       id: 'unequal',
       name: '7. Неравноценное встречное исполнение',
       description: 'Пункт 1 статьи 61.2 Закона о банкротстве.',
       group: 'Правовые основания',
-      condition: 'deal.unequal = true',
+      condition: 'deal.unequal = true AND deal.gratuitous = false',
       template:
-        'Стоимость переданного должником по Сделке имущества составила {{DEBTOR_VALUE}} руб., ' +
-        'тогда как встречное исполнение со стороны {{COUNTERPARTY_SHORT}} составило ' +
-        '{{COUNTER_VALUE}} руб. Разница составляет {{COUNTER_GAP}} руб. ({{COUNTER_GAP_WORDS}}).\n' +
+        'Стоимость имущества в соответствии с Договором составила {{CONTRACT_PRICE}} руб. ' +
+        'Согласно решению об оценке {{MANAGER_ROLE_GEN}} {{VALUATION_DECISION}} рыночная ' +
+        'стоимость этого имущества составляет {{MARKET_VALUE}} руб. ({{MARKET_VALUE_WORDS}}), ' +
+        'что превышает стоимость отчуждения имущества должником в результате оспариваемой сделки ' +
+        'в {{VALUE_RATIO}} раза. Разница составляет {{VALUE_GAP}} руб. ({{VALUE_GAP_WORDS}}). ' +
+        '{{VALUATION_NOTE}}\n' +
         'Согласно пункту 1 статьи 61.2 Закона о банкротстве сделка, совершённая должником ' +
         'в течение одного года до принятия заявления о признании банкротом или после принятия ' +
         'указанного заявления, может быть признана недействительной при неравноценном встречном ' +
@@ -720,6 +719,26 @@
         'существенно в худшую для должника сторону отличается от цены, при которой в сравнимых ' +
         'обстоятельствах совершаются аналогичные сделки.\n' +
         'Таким образом, Сделка совершена при неравноценном встречном исполнении.'
+    },
+    {
+      id: 'unequal_free',
+      name: 'Безвозмездная передача имущества',
+      description: 'Пункт 1 статьи 61.2: встречного предоставления не было вовсе.',
+      group: 'Правовые основания',
+      condition: 'deal.unequal = true AND deal.gratuitous = true',
+      template:
+        'Имущество передано должником безвозмездно: встречное предоставление по Сделке ' +
+        'отсутствует. Согласно решению об оценке {{MANAGER_ROLE_GEN}} {{VALUATION_DECISION}} ' +
+        'рыночная стоимость переданного имущества составляет {{MARKET_VALUE}} руб. ' +
+        '({{MARKET_VALUE_WORDS}}). {{VALUATION_NOTE}}\n' +
+        'Согласно пункту 1 статьи 61.2 Закона о банкротстве сделка, совершённая должником ' +
+        'в течение одного года до принятия заявления о признании банкротом или после принятия ' +
+        'указанного заявления, может быть признана недействительной при неравноценном встречном ' +
+        'исполнении обязательств другой стороной сделки.\n' +
+        'Неравноценным встречным исполнением обязательств признаётся, в частности, любая передача ' +
+        'имущества, если рыночная стоимость переданного должником имущества существенно превышает ' +
+        'стоимость полученного встречного исполнения. Безвозмездная передача имущества является ' +
+        'крайним случаем такой неравноценности.'
     },
     {
       id: 'harm',
@@ -1121,7 +1140,7 @@
     DEAL_TYPES, OBJECT_TYPES, PROCEDURES, PARTY_KINDS, DOC_TYPES,
     FEE_SCALES, FEE_INVALIDATION, FEE_BANKRUPTCY_SHARE, feeByValue,
     DOC_KINDS, ALL_KINDS, GROUNDS,
-    PERFORMANCE, COUNTER, AFFILIATION_GROUNDS, PREFERENCE_GROUNDS,
+    PERFORMANCE, AFFILIATION_GROUNDS, PREFERENCE_GROUNDS,
     CURRENCIES, REALTY_KINDS,
     VARS, VAR_INDEX, BLOCKS,
     byId, nameOf
