@@ -53,6 +53,9 @@
       managerName: '', managerAddress: '', managerContacts: '', managerSro: '',
       managerInn: '', managerSnils: '', managerRegNumber: '',
       creditorsSum: '',
+      accountsBalance: '',  // остаток на счетах должника — для ходатайства об отсрочке
+      accountsBanks: '',
+      offerDays: '10',      // срок ответа на предложение о возврате
       debtorNameGen: '',    // «…имуществом должника Абрамовой Зарият Руслановны»
       okb: null,            // урезанный кредитный отчёт ОКБ, если он загружен
       debtorId: debtor.id,
@@ -94,6 +97,10 @@
       preferenceGrounds: [], preferenceNote: '',
       harmNote: '', awarenessNote: '', circumstances: '',
       documents: [],
+      // Документов по сделке несколько: заявление, ходатайство об отсрочке
+      // пошлины, предложение о возврате. Данные у них общие, состав блоков —
+      // свой.
+      statements: [newStatement('statement')],
       fee: {
         claim: '',            // цена иска; пусто — берём рыночную стоимость объекта
         scale: 'org',         // шкала пп. 1 п. 1 ст. 333.21 НК РФ
@@ -101,14 +108,18 @@
         withFixed: true,      // включать требование о признании сделки недействительной
         halved: true,         // пп. 9: обособленный спор в деле о банкротстве
         manual: ''            // ручная сумма, если расчёт расходится с практикой суда
-      },
-      statement: newStatement()
+      }
     };
   }
 
-  function newStatement() {
-    return { status: 'draft', blocks: [], versions: [], seq: 0 };
+  /** Документ по сделке: заявление, ходатайство или предложение. */
+  function newStatement(kind) {
+    return { id: uid(), kind: kind || 'statement', status: 'draft', blocks: [], versions: [], seq: 0 };
   }
+
+  const kindOf = (st) => D.byId(D.DOC_KINDS, (st && st.kind) || 'statement') || D.DOC_KINDS[0];
+  const findStatement = (deal, id) => (deal.statements || []).find((x) => x.id === id) || null;
+  const mainStatement = (deal) => (deal.statements || [])[0] || null;
 
   function newDocument() {
     return { id: uid(), name: '', type: 'contract', date: '', number: '', file: '', description: '', attach: true };
@@ -143,10 +154,17 @@
       c.parties = c.parties || [];
       c.deals = c.deals || [];
       for (const d of c.deals) {
+        // Единственное заявление стало списком документов — переносим его,
+        // сохранив состав блоков и версии.
+        if (d.statement && !d.statements) {
+          d.statements = [Object.assign(newStatement('statement'), d.statement)];
+          delete d.statement;
+        }
         const proto = newDeal();
         for (const k of Object.keys(proto)) if (d[k] === undefined) d[k] = proto[k];
         d.object = Object.assign(newObject(d.object && d.object.kind), d.object || {});
-        d.statement = Object.assign(newStatement(), d.statement || {});
+        d.statements = (d.statements.length ? d.statements : [newStatement('statement')])
+          .map((st) => Object.assign(newStatement(st.kind), st));
       }
     }
     db.schema = SCHEMA;
@@ -373,7 +391,10 @@
       FEE_CALC: feeKnown ? feeText(deal) : '',
 
       TODAY: D.dateLong(new Date().toISOString().slice(0, 10)),
-      ATTACHMENTS: attachments(deal).map((a, i) => (i + 1) + '. ' + a).join('\n')
+      ATTACHMENTS: attachments(deal).map((a, i) => (i + 1) + '. ' + a).join('\n'),
+      ACCOUNTS_BALANCE: D.money(kase.accountsBalance),
+      ACCOUNTS_BANKS: kase.accountsBanks,
+      OFFER_DAYS: kase.offerDays || '10'
     };
 
     // Цифры из кредитного отчёта — отдельным набором, чтобы блоки могли
@@ -628,13 +649,27 @@
   /* ================= блоки заявления ================= */
 
   /** Библиотека = стандартные блоки (с учётом правок) + пользовательские. */
-  function library(db) {
+  function library(db, kind) {
     const has = (id) => Object.prototype.hasOwnProperty.call(db.edits || {}, id);
     const std = D.BLOCKS.map((b) => Object.assign({}, b, {
+      kinds: b.kinds || ['statement'],
       template: has(b.id) ? db.edits[b.id] : b.template,
       edited: has(b.id)
     }));
-    return std.concat((db.customBlocks || []).map((b) => Object.assign({ custom: true }, b)));
+    const own = (db.customBlocks || []).map((b) =>
+      Object.assign({ custom: true, kinds: b.kinds || ['statement'] }, b));
+    const all = std.concat(own);
+    if (!kind) return all;
+
+    // Порядок задан видом документа; всё, что в его перечень не попало,
+    // дописывается в конец — так свой блок не теряется.
+    const order = (D.byId(D.DOC_KINDS, kind) || {}).blocks || [];
+    const mine = all.filter((b) => (b.kinds || ['statement']).includes(kind));
+    const rank = (b) => {
+      const at = order.indexOf(b.id);
+      return at < 0 ? order.length : at;
+    };
+    return mine.slice().sort((a, b) => rank(a) - rank(b));
   }
 
   /**
@@ -642,9 +677,9 @@
    * блоки включены, условные — по фактам сделки. Дальше решает пользователь,
    * и его выбор не перетирается.
    */
-  function statementBlocks(db, kase, deal) {
-    const lib = library(db);
-    const st = deal.statement;
+  function statementBlocks(db, kase, deal, statement) {
+    const st = statement || mainStatement(deal);
+    const lib = library(db, st.kind);
     const ctx = condContext(kase, deal);
     const known = new Map(lib.map((b) => [b.id, b]));
 
@@ -690,10 +725,11 @@
    */
   function buildDocument(db, kase, deal, opts) {
     const mark = !!(opts && opts.mark);
+    const st = (opts && opts.statement) || mainStatement(deal);
     const vars = context(db, kase, deal);
     const out = [];
 
-    for (const b of statementBlocks(db, kase, deal)) {
+    for (const b of statementBlocks(db, kase, deal, st)) {
       if (!b.enabled) continue;
       const lines = render(b.template, vars, mark).split('\n').map((s) => s.replace(/[ \t]+$/, ''));
       let first = true;
@@ -725,8 +761,8 @@
   }
 
   /** Плоский текст документа — для версий и сравнения. */
-  const documentText = (db, kase, deal) =>
-    buildDocument(db, kase, deal, { mark: false })
+  const documentText = (db, kase, deal, st) =>
+    buildDocument(db, kase, deal, { mark: false, statement: st })
       .map((p) => (p.kind === 'table'
         ? [p.head.join(' | ')].concat(p.rows.map((r) => r.join(' | ')),
           p.total ? [p.total.join(' | ')] : []).join('\n')
@@ -739,7 +775,8 @@
    * Ошибки не дают сформировать документ, предупреждения — только сигналят.
    * Все проверки — обычные правила, никакой «оценки перспектив» (§28).
    */
-  function validate(db, kase, deal) {
+  function validate(db, kase, deal, statement) {
+    const st = statement || mainStatement(deal);
     const errors = [], warnings = [];
     const debtor = debtorOf(kase);
     const cp = counterpartyOf(kase, deal);
@@ -753,8 +790,8 @@
     req(deal.amount !== '' && deal.amount != null, 'Сумма сделки', 'deal');
     req(cp && partyName(cp), 'Контрагент по сделке', 'deal');
 
-    const blocks = statementBlocks(db, kase, deal);
-    if (!blocks.some((b) => b.enabled)) errors.push({ field: 'Не выбран ни один блок заявления', where: 'builder' });
+    const blocks = statementBlocks(db, kase, deal, st);
+    if (!blocks.some((b) => b.enabled)) errors.push({ field: 'Не выбран ни один блок документа', where: 'builder' });
 
     // Логические проверки (§14)
     const perfDate = deal.performance.date;
@@ -804,21 +841,21 @@
 
   /* ================= версии ================= */
 
-  function saveVersion(db, kase, deal, note) {
-    const st = deal.statement;
+  function saveVersion(db, kase, deal, statement, note) {
+    const st = statement || mainStatement(deal);
     st.seq = (st.seq || 0) + 1;
     st.versions.push({
       id: uid(), no: st.seq, createdAt: now(), note: note || '',
-      text: documentText(db, kase, deal),
+      text: documentText(db, kase, deal, st),
       blocks: JSON.parse(JSON.stringify(st.blocks))
     });
     return st.versions[st.versions.length - 1];
   }
 
-  function restoreVersion(deal, versionId) {
-    const v = deal.statement.versions.find((x) => x.id === versionId);
+  function restoreVersion(statement, versionId) {
+    const v = statement.versions.find((x) => x.id === versionId);
     if (!v) return false;
-    deal.statement.blocks = JSON.parse(JSON.stringify(v.blocks));
+    statement.blocks = JSON.parse(JSON.stringify(v.blocks));
     return true;
   }
 
@@ -863,15 +900,19 @@
     copy.date = '';
     copy.contractDate = '';
     copy.documents = [];
-    copy.statement.versions = [];
-    copy.statement.seq = 0;
-    copy.statement.status = 'draft';
+    for (const st of copy.statements) {
+      st.id = uid();
+      st.versions = [];
+      st.seq = 0;
+      st.status = 'draft';
+    }
     return copy;
   }
 
   globalThis.ZStore = {
     KEY, SCHEMA, uid, now,
     newDb, newCase, newParty, newDeal, newObject, newDocument, newStatement,
+    kindOf, findStatement, mainStatement,
     load, save, migrate,
     partyName, partyShort, partyInn, partyOgrn, partyAddress, partyRequisites,
     findParty, debtorOf, counterpartyOf,

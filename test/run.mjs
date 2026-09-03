@@ -193,7 +193,7 @@ group('Состав заявления');
   ok('свой блок по умолчанию выключен', !again[again.length - 1].enabled);
 
   // Правка текста блока живёт в заявлении и не трогает библиотеку.
-  const ref = d.statement.blocks.find((b) => b.id === 'title');
+  const ref = S.mainStatement(d).blocks.find((b) => b.id === 'title');
   ref.text = 'ЗАЯВЛЕНИЕ';
   ok('текст блока переопределён', S.statementBlocks(db, c, d).find((b) => b.id === 'title').template === 'ЗАЯВЛЕНИЕ');
   ok('библиотека не изменилась', S.library(db).find((b) => b.id === 'title').template !== 'ЗАЯВЛЕНИЕ');
@@ -217,7 +217,7 @@ group('Сборка документа');
   ok('переменные подставлены', !paras.some((p) => /\{\{/.test(p.text)));
 
   // Выключенный блок в документ не попадает.
-  d.statement.blocks.find((b) => b.id === 'legal_basis').enabled = false;
+  S.mainStatement(d).blocks.find((b) => b.id === 'legal_basis').enabled = false;
   const less = S.buildDocument(db, c, d, { mark: false });
   ok('выключенный блок исключён', less.length < paras.length && !less.some((p) => p.blockId === 'legal_basis'));
 }
@@ -289,9 +289,9 @@ group('Проверка перед выгрузкой');
 group('Копирование сделки и версии');
 {
   const { db, c, d } = sample();
-  d.statement.blocks = [];
+  S.mainStatement(d).blocks = [];
   S.statementBlocks(db, c, d);
-  d.statement.blocks.find((b) => b.id === 'harm').enabled = true;
+  S.mainStatement(d).blocks.find((b) => b.id === 'harm').enabled = true;
 
   const copy = S.cloneDeal(d);
   ok('новый идентификатор', copy.id !== d.id);
@@ -299,13 +299,13 @@ group('Копирование сделки и версии');
   eq('тип сделки сохранён', copy.type, d.type);
   eq('номер очищен', copy.number, '');
   eq('дата очищена', copy.date, '');
-  ok('состав блоков перенесён', copy.statement.blocks.find((b) => b.id === 'harm').enabled);
-  eq('версии не переносятся', copy.statement.versions.length, 0);
+  ok('состав блоков перенесён', S.mainStatement(copy).blocks.find((b) => b.id === 'harm').enabled);
+  eq('версии не переносятся', S.mainStatement(copy).versions.length, 0);
 
-  const v1 = S.saveVersion(db, c, d, 'первая');
+  const v1 = S.saveVersion(db, c, d, S.mainStatement(d), 'первая');
   eq('номер версии', v1.no, 1);
-  d.statement.blocks.find((b) => b.id === 'legal_basis').enabled = false;
-  const v2 = S.saveVersion(db, c, d, '');
+  S.mainStatement(d).blocks.find((b) => b.id === 'legal_basis').enabled = false;
+  const v2 = S.saveVersion(db, c, d, S.mainStatement(d), '');
   eq('номер второй версии', v2.no, 2);
   ok('текст версий отличается', v1.text !== v2.text);
 
@@ -315,8 +315,8 @@ group('Копирование сделки и версии');
   ok('сравнение восстанавливает исходный текст',
     diff.filter((l) => l.op !== '+').map((l) => l.text).join('\n') === v1.text);
 
-  S.restoreVersion(d, v1.id);
-  ok('версия восстановлена', d.statement.blocks.find((b) => b.id === 'legal_basis').enabled);
+  S.restoreVersion(S.mainStatement(d), v1.id);
+  ok('версия восстановлена', S.mainStatement(d).blocks.find((b) => b.id === 'legal_basis').enabled);
 }
 
 /* ================= DOCX ================= */
@@ -685,7 +685,7 @@ group('Таблицы в заявлении');
   };
   d.date = '2025-04-15';
   S.statementBlocks(db, c, d);
-  for (const b of d.statement.blocks) if (b.id === 'okb_insolvency' || b.id === 'okb_overdue') b.enabled = true;
+  for (const b of S.mainStatement(d).blocks) if (b.id === 'okb_insolvency' || b.id === 'okb_overdue') b.enabled = true;
 
   const doc = S.buildDocument(db, c, d, { mark: false });
   const tables = doc.filter((x) => x.kind === 'table');
@@ -715,6 +715,97 @@ group('Таблицы в заявлении');
   eq('кусков-строк столько же, сколько строк в таблицах',
     flow.filter((x) => x.type === 'row').length,
     tables.reduce((n, t) => n + t.rows.length + (t.total ? 1 : 0), 0));
+}
+
+/* ================= несколько документов по сделке ================= */
+
+/*
+ * По одной сделке готовится не один документ: к заявлению идёт ходатайство об
+ * отсрочке пошлины, а до подачи — предложение о возврате в конкурсную массу.
+ * Данные у них общие, состав блоков — свой, и путать их нельзя.
+ */
+group('Документы по сделке');
+{
+  const { db, c, d } = sample();
+  eq('по умолчанию один документ', d.statements.length, 1);
+  eq('и это заявление', d.statements[0].kind, 'statement');
+
+  const petition = S.newStatement('petition');
+  const offer = S.newStatement('offer');
+  d.statements.push(petition, offer);
+
+  const ids = (st) => S.statementBlocks(db, c, d, st).map((b) => b.id);
+  const stIds = ids(d.statements[0]);
+  const peIds = ids(petition);
+  const ofIds = ids(offer);
+
+  ok('в заявлении есть требования', stIds.includes('claims'));
+  ok('в заявлении нет блоков ходатайства', !stIds.some((x) => x.startsWith('petition_')));
+  ok('в ходатайстве есть просительная часть', peIds.includes('petition_claims'));
+  ok('в ходатайстве нет обстоятельств сделки', !peIds.includes('deal_circumstances'));
+  ok('в предложении своя шапка', ofIds[0] === 'offer_header');
+  ok('в предложении нет шапки заявления', !ofIds.includes('header'));
+
+  // Порядок задан видом документа, а не порядком объявления в библиотеке:
+  // общая подпись обязана стоять последней во всех трёх.
+  for (const [name, list] of [['заявление', stIds], ['ходатайство', peIds], ['предложение', ofIds]]) {
+    eq('подпись в конце: ' + name, list[list.length - 1], 'sign');
+  }
+  eq('приложения перед подписью в ходатайстве', peIds[peIds.length - 2], 'attachments');
+
+  // Документы независимы: правка одного не задевает другой.
+  petition.blocks.find((b) => b.id === 'petition_balance').enabled = false;
+  ok('состав заявления не изменился',
+    S.statementBlocks(db, c, d, d.statements[0]).filter((b) => b.enabled).length > 10);
+
+  c.accountsBalance = '101.11';
+  c.accountsBanks = 'ПАО «Сбербанк», АО «ТБанк»';
+  const vars = S.context(db, c, d);
+  eq('остаток на счетах', vars.ACCOUNTS_BALANCE, D.money(101.11));
+  eq('банки', vars.ACCOUNTS_BANKS, 'ПАО «Сбербанк», АО «ТБанк»');
+  eq('срок ответа по умолчанию', vars.OFFER_DAYS, '10');
+
+  const text = S.documentText(db, c, d, petition);
+  ok('в ходатайстве есть просьба об отсрочке', /Отсрочить уплату государственной пошлины/.test(text));
+  ok('в ходатайстве нет требований заявления', !/Признать недействительной сделку/.test(text));
+
+  const offerText = S.documentText(db, c, d, offer);
+  ok('в предложении есть возврат в конкурсную массу', /возвратить в конкурсную массу/.test(offerText));
+  ok('в предложении есть срок ответа', /в течение 10 календарных дней/.test(offerText));
+
+  // Копия сделки уносит все документы, но без версий.
+  S.saveVersion(db, c, d, petition, '');
+  const copy = S.cloneDeal(d);
+  eq('копия несёт все документы', copy.statements.length, 3);
+  ok('идентификаторы новые', copy.statements.every((x, i) => x.id !== d.statements[i].id));
+  ok('версии не переносятся', copy.statements.every((x) => x.versions.length === 0));
+}
+
+/* ================= перенос старых данных ================= */
+
+group('Миграция старого дела');
+{
+  // База, записанная до появления нескольких документов: у сделки было одно
+  // поле statement. Терять его нельзя — там состав блоков и версии.
+  const old = {
+    schema: 1, profile: {}, cases: [{
+      id: 'c1', number: 'А40-1/2025', parties: [], deals: [{
+        id: 'd1', type: 'sale', date: '2025-04-15', amount: '100000',
+        statement: { status: 'ready', seq: 2, blocks: [{ id: 'title', order: 0, enabled: true, text: 'ЗАЯВЛЕНИЕ' }], versions: [{ id: 'v1', no: 1, text: 'старый текст' }] }
+      }]
+    }], customBlocks: [], edits: {}
+  };
+  const db2 = S.migrate(JSON.parse(JSON.stringify(old)));
+  const d2 = db2.cases[0].deals[0];
+
+  eq('заявление стало первым документом', d2.statements.length, 1);
+  eq('вид проставлен', d2.statements[0].kind, 'statement');
+  eq('статус сохранён', d2.statements[0].status, 'ready');
+  eq('правка блока на месте', d2.statements[0].blocks[0].text, 'ЗАЯВЛЕНИЕ');
+  eq('версия сохранена', d2.statements[0].versions[0].text, 'старый текст');
+  ok('старое поле убрано', d2.statement === undefined);
+  ok('появился идентификатор', !!d2.statements[0].id);
+  ok('дозаполнены новые поля сделки', d2.fee !== undefined && d2.object !== undefined);
 }
 
 /* ================= итог ================= */

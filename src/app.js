@@ -51,7 +51,7 @@
     if (!p.length) return { name: 'cases' };
     if (p[0] === 'case' && p[1]) return { name: 'case', caseId: p[1] };
     if (p[0] === 'deal' && p[2]) return { name: 'deal', caseId: p[1], dealId: p[2] };
-    if (p[0] === 'builder' && p[2]) return { name: 'builder', caseId: p[1], dealId: p[2] };
+    if (p[0] === 'builder' && p[2]) return { name: 'builder', caseId: p[1], dealId: p[2], docId: p[3] || '' };
     if (p[0] === 'blocks') return { name: 'blocks' };
     return { name: 'cases' };
   }
@@ -62,6 +62,13 @@
   const currentDeal = () => {
     const c = currentCase();
     return c ? (c.deals.find((d) => d.id === route.dealId) || null) : null;
+  };
+
+  /** Документ, открытый в конструкторе. Без идентификатора — первый (заявление). */
+  const currentDoc = () => {
+    const d = currentDeal();
+    if (!d) return null;
+    return (route.docId && S.findStatement(d, route.docId)) || S.mainStatement(d);
   };
 
   /* ================= привязка полей ================= */
@@ -158,7 +165,7 @@
 
   /** Сводка по делу: на неё опираются и карточка, и плитки. */
   function caseStats(c) {
-    const ready = c.deals.filter((d) => d.statement.status === 'ready').length;
+    const ready = c.deals.filter((d) => S.mainStatement(d).status === 'ready').length;
     return { deals: c.deals.length, ready: ready, draft: c.deals.length - ready, parties: c.parties.length };
   }
 
@@ -349,6 +356,18 @@
       </div>
 
       <div class="card">
+        <h3>Для ходатайства и предложения</h3>
+        <p class="m">Нужно только этим двум документам — в заявление не попадает.</p>
+        <div class="form">
+          ${field({ label: 'Остаток на счетах должника, ₽', bind: 'case.accountsBalance', money: true,
+            hint: 'Подтверждает невозможность единовременно уплатить пошлину' })}
+          ${field({ label: 'Срок ответа на предложение, дней', bind: 'case.offerDays', placeholder: '10' })}
+          ${field({ label: 'Банки, в которые направлены запросы', bind: 'case.accountsBanks', type: 'textarea',
+            wide: true, rows: 2, placeholder: 'ПАО «Сбербанк», АО «ТБанк», ПАО «Совкомбанк»' })}
+        </div>
+      </div>
+
+      <div class="card">
         <h3>Арбитражный управляющий</h3>
         <p class="m">Пустые поля берутся из профиля — заполнять по каждому делу не нужно.</p>
         <div class="form">
@@ -432,7 +451,7 @@
         <div style="margin-top:16px"><button class="btn pri" data-act="new-deal">+ Добавить сделку</button></div></div>`;
     }
     const rows = c.deals.map((d) => {
-      const ready = d.statement.status === 'ready';
+      const ready = S.mainStatement(d).status === 'ready';
       return `<tr class="click" data-go="#/deal/${c.id}/${d.id}">
         <td data-l="Контрагент"><b>${esc(S.partyShort(S.counterpartyOf(c, d)) || '— не выбран —')}</b></td>
         <td data-l="Тип">${esc(S.dealTypeName(d))}</td>
@@ -458,7 +477,7 @@
     const cp = S.counterpartyOf(c, d);
     const debtor = S.debtorOf(c);
     const v = S.validate(db, c, d);
-    const ready = d.statement.status === 'ready';
+    const ready = S.mainStatement(d).status === 'ready';
     const docs = (d.documents || []).length;
 
     const head = `<div class="crumbs"><a href="#/">Мои дела</a><span>›</span>
@@ -481,20 +500,17 @@
         </div>
 
         <div class="t s4">
-          <div class="k">Заявление</div>
+          <div class="k">Документы по сделке</div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <span class="pill ${ready ? 'ready' : 'draft'}">${ready ? 'Готово' : 'Черновик'}</span>
+            <span class="pill ${ready ? 'ready' : 'draft'}">${ready ? 'Заявление готово' : 'Заявление — черновик'}</span>
             ${v.errors.length
         ? `<span class="chipm w"><span class="dot"></span>не заполнено: ${v.errors.length}</span>`
         : '<span class="chipm"><span class="dot"></span>обязательные поля заполнены</span>'}
           </div>
-          <p class="m">${d.statement.versions.length
-        ? 'Сохранённых версий: ' + d.statement.versions.length
-        : 'Версии пока не сохранялись.'}</p>
+          <p class="m">Готовится ${d.statements.length} ${D.plural(d.statements.length, 'документ', 'документа', 'документов')}
+            из ${D.DOC_KINDS.length} возможных. Данные у них общие.</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:auto;padding-top:8px">
-            <button class="btn btn-sm" data-act="preview-sheets">Предпросмотр</button>
-            <button class="btn btn-sm" data-act="export-docx">Скачать DOCX</button>
-            <button class="btn btn-sm danger" data-act="del-deal">Удалить</button>
+            <button class="btn btn-sm danger" data-act="del-deal">Удалить сделку</button>
           </div>
         </div>
       </div>
@@ -517,7 +533,45 @@
             : tabs.deal === 'docs' ? dealDocsTab(d)
               : dealMainTab(d);
 
-    return head + body;
+    return head + body + dealPapers(c, d);
+  }
+
+  /**
+   * Документы сделки: заявление, ходатайство об отсрочке пошлины, предложение
+   * о возврате. Каждый собирается своими блоками, но данные берёт из той же
+   * сделки — вводить их повторно не нужно.
+   */
+  function dealPapers(c, d) {
+    const rows = d.statements.map((st) => {
+      const kind = S.kindOf(st);
+      const check = S.validate(db, c, d, st);
+      const on = st.blocks.filter((b) => b.enabled).length;
+      return `<div class="party">
+        <div style="min-width:0">
+          <div class="nm">${esc(kind.name)}</div>
+          <div class="rq">${on ? on + ' ' + D.plural(on, 'блок', 'блока', 'блоков') + ' включено' : 'ещё не собран'}${st.versions.length ? ' · версий: ' + st.versions.length : ''}${check.errors.length ? ' · не заполнено: ' + check.errors.length : ''}</div>
+        </div>
+        <span class="pill ${st.status === 'ready' ? 'ready' : 'draft'}">${st.status === 'ready' ? 'Готово' : 'Черновик'}</span>
+        <div class="sp">
+          <button class="btn btn-sm" data-act="preview-sheets" data-id="${st.id}">Листы</button>
+          <button class="btn btn-sm" data-act="export-docx" data-id="${st.id}">DOCX</button>
+          <button class="btn btn-sm pri" data-go="#/builder/${c.id}/${d.id}/${st.id}">Открыть</button>
+          ${st.kind === 'statement' ? '' : `<button class="btn btn-sm danger" data-act="del-doc-kind" data-id="${st.id}">✕</button>`}
+        </div>
+      </div>`;
+    }).join('');
+
+    const missing = D.DOC_KINDS.filter((k) => !d.statements.some((st) => st.kind === k.id));
+
+    return `<div class="card">
+      <h3>Документы по сделке</h3>
+      <p class="m">Реквизиты дела, сделки и расчёт пошлины у всех документов общие —
+        вводятся один раз.</p>
+      ${rows}
+      ${missing.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        ${missing.map((k) => `<button class="btn" data-act="add-doc-kind" data-id="${k.id}">+ ${esc(k.short)}</button>`).join('')}
+      </div>` : ''}
+    </div>`;
   }
 
   function dealMainTab(d) {
@@ -779,12 +833,14 @@
   /* ================= конструктор ================= */
 
   function screenBuilder() {
-    const c = currentCase(), d = currentDeal();
-    if (!c || !d) return notFound();
+    const c = currentCase(), d = currentDeal(), st = currentDoc();
+    if (!c || !d || !st) return notFound();
 
-    const blocks = S.statementBlocks(db, c, d);
+    const kind = S.kindOf(st);
+    const blocks = S.statementBlocks(db, c, d, st);
     const on = blocks.filter((b) => b.enabled).length;
-    const versions = d.statement.versions.length;
+    const versions = st.versions.length;
+    const others = d.statements.filter((x) => x.id !== st.id);
 
     return `<div class="crumbs"><a href="#/">Мои дела</a><span>›</span>
         <a href="#/case/${c.id}">${esc(c.number || 'дело')}</a><span>›</span>
@@ -792,18 +848,19 @@
 
       <div class="bento anim">
         <div class="t hero s8">
-          <div class="k">Конструктор заявления</div>
+          <div class="k">${esc(kind.name)}</div>
           <h2>${esc(S.dealTypeName(d))}${d.number ? ' № ' + esc(d.number) : ''}</h2>
           <p class="said">${esc(S.partyShort(S.debtorOf(c)) || 'должник')} →
             <b>${esc(S.partyShort(S.counterpartyOf(c, d)) || 'контрагент не выбран')}</b>${d.amount !== '' ? ' · ' + esc(money0(d.amount)) + ' ₽' : ''}</p>
           <div class="act">
             <button class="btn pri" data-act="export-docx">Скачать DOCX</button>
             <button class="btn" data-act="preview-sheets">Листы и печать</button>
+            ${others.map((x) => `<button class="btn" data-go="#/builder/${c.id}/${d.id}/${x.id}">${esc(S.kindOf(x).short)}</button>`).join('')}
           </div>
         </div>
 
         <div class="t s4">
-          <div class="k">Версии заявления</div>
+          <div class="k">Версии документа</div>
           <div class="v">${versions}</div>
           <p class="m">Снимок состава блоков и текста: можно вернуться к предыдущей и сравнить построчно.</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:auto;padding-top:8px">
@@ -824,14 +881,14 @@
             <button class="btn btn-sm" data-act="reset-blocks">Собрать заново по ответам</button>
             <button class="btn btn-sm" data-go="#/blocks">Библиотека блоков</button>
           </div>
-          <div class="check" id="check">${checkPanel(c, d)}</div>
+          <div class="check" id="check">${checkPanel(c, d, st)}</div>
         </div>
 
         <div class="right">
           <div class="preview">
             <div class="ph"><h3>Предпросмотр</h3>
               <span class="m">обновляется на каждое изменение</span></div>
-            <div class="paper" id="paper">${previewHtml(c, d)}</div>
+            <div class="paper" id="paper">${previewHtml(c, d, st)}</div>
           </div>
         </div>
       </div>`;
@@ -867,8 +924,8 @@
   }
 
   /** Предпросмотр: незаполненные переменные подсвечены — сразу видно, чего не хватает. */
-  function previewHtml(c, d) {
-    const paras = S.buildDocument(db, c, d, { mark: true });
+  function previewHtml(c, d, st) {
+    const paras = S.buildDocument(db, c, d, { mark: true, statement: st });
     if (!paras.length) return '<p class="left" style="color:#8A867F">Не включён ни один блок.</p>';
     return paras.map((p) => {
       if (p.kind === 'table') return X.tableHtml(p);
@@ -879,11 +936,11 @@
     }).join('');
   }
 
-  function checkPanel(c, d) {
-    const v = S.validate(db, c, d);
+  function checkPanel(c, d, st) {
+    const v = S.validate(db, c, d, st);
     let html = '';
     if (v.errors.length) {
-      html += '<div class="note warn"><h4>Нельзя сформировать заявление</h4><ul>' +
+      html += '<div class="note warn"><h4>Нельзя сформировать документ</h4><ul>' +
         v.errors.map((e) => `<li>Не заполнено: ${esc(e.field)}</li>`).join('') + '</ul></div>';
     }
     if (v.warnings.length) {
@@ -895,17 +952,17 @@
         v.missingVars.map((n) => esc(D.VAR_INDEX.has(n) ? D.VAR_INDEX.get(n).label : n)).join(', ') +
         '</li></ul></div>';
     }
-    if (!html) html = '<div class="note good"><b>Всё заполнено</b> — заявление можно выгружать.</div>';
+    if (!html) html = '<div class="note good"><b>Всё заполнено</b> — документ можно выгружать.</div>';
     return html;
   }
 
   function refreshBuilder() {
-    const c = currentCase(), d = currentDeal();
-    if (!c || !d) return;
+    const c = currentCase(), d = currentDeal(), st = currentDoc();
+    if (!c || !d || !st) return;
     const paper = $('#paper');
-    if (paper) paper.innerHTML = previewHtml(c, d);
+    if (paper) paper.innerHTML = previewHtml(c, d, st);
     const check = $('#check');
-    if (check) check.innerHTML = checkPanel(c, d);
+    if (check) check.innerHTML = checkPanel(c, d, st);
   }
 
   /* ================= библиотека блоков ================= */
@@ -1084,13 +1141,13 @@
       });
   }
 
-  function sheetsModal() {
+  function sheetsModal(st) {
     const c = currentCase(), d = currentDeal();
-    if (!c || !d) return;
-    const paras = S.buildDocument(db, c, d, { mark: false });
+    if (!c || !d || !st) return;
+    const paras = S.buildDocument(db, c, d, { mark: false, statement: st });
     if (!paras.length) return note('Не включён ни один блок — печатать нечего.');
 
-    openModal(`<h3>Листы заявления</h3>
+    openModal(`<h3>Листы: ${esc(S.kindOf(st).name.toLowerCase())}</h3>
       <p class="lead">Так документ ляжет на бумагу и в PDF. Печать → «Сохранить как PDF».</p>
       <div class="sheets" id="sheets">${X.buildSheets(paras)}</div>
       <div class="foot">
@@ -1107,7 +1164,7 @@
         window.print();
         setTimeout(() => document.body.classList.remove('printmode'), 500);
       });
-      $('#sheet-docx', root).addEventListener('click', exportDocx);
+      $('#sheet-docx', root).addEventListener('click', () => exportDocx(st));
     });
   }
 
@@ -1124,9 +1181,9 @@
   }
 
   function versionsModal() {
-    const c = currentCase(), d = currentDeal();
-    if (!c || !d) return;
-    const vs = [...d.statement.versions].reverse();
+    const c = currentCase(), d = currentDeal(), st = currentDoc();
+    if (!c || !d || !st) return;
+    const vs = [...st.versions].reverse();
 
     const list = vs.length ? vs.map((v) => `<div class="v">
         <b>Версия ${v.no}</b>
@@ -1139,7 +1196,7 @@
 
     const options = vs.map((v) => `<option value="${v.id}">Версия ${v.no}</option>`).join('');
 
-    openModal(`<h3>Версии заявления</h3>
+    openModal(`<h3>Версии — ${esc(S.kindOf(st).name.toLowerCase())}</h3>
       <p class="lead">Каждая версия — снимок состава блоков и собранного текста.</p>
       <div class="versions">${list}</div>
       ${vs.length ? `<div class="card" style="margin:14px 0 0;box-shadow:none">
@@ -1156,8 +1213,8 @@
 
       const a = $('#cmp-a', root), b = $('#cmp-b', root);
       if (a && b) {
-        const textOf = (id) => id === 'current' ? S.documentText(db, c, d)
-          : (d.statement.versions.find((v) => v.id === id) || { text: '' }).text;
+        const textOf = (id) => id === 'current' ? S.documentText(db, c, d, st)
+          : (st.versions.find((v) => v.id === id) || { text: '' }).text;
         const draw = () => {
           $('#diff', root).innerHTML = S.diffLines(textOf(a.value), textOf(b.value))
             .map((l) => `<span class="${l.op === '+' ? 'add' : l.op === '-' ? 'del' : 'same'}">` +
@@ -1171,7 +1228,7 @@
       root.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-act]');
         if (!btn) return;
-        const v = d.statement.versions.find((x) => x.id === btn.dataset.id);
+        const v = st.versions.find((x) => x.id === btn.dataset.id);
         if (btn.dataset.act === 'view-version' && v) {
           close();
           openModal(`<h3>Версия ${v.no}</h3><div class="diff">${esc(v.text)}</div>
@@ -1179,7 +1236,7 @@
         } else if (btn.dataset.act === 'restore-version' && v) {
           close();
           confirmBox('Восстановить версию ' + v.no + '? Текущий состав блоков будет заменён.', () => {
-            S.restoreVersion(d, v.id);
+            S.restoreVersion(st, v.id);
             saveNow();
             render();
           });
@@ -1291,26 +1348,26 @@
   }
 
   function saveVersion() {
-    const c = currentCase(), d = currentDeal();
-    if (!c || !d) return;
-    const v = S.saveVersion(db, c, d, '');
+    const c = currentCase(), d = currentDeal(), st = currentDoc();
+    if (!c || !d || !st) return;
+    const v = S.saveVersion(db, c, d, st, '');
     saveNow();
     render();
     note('Сохранена версия ' + v.no + '.');
   }
 
-  function exportDocx() {
+  function exportDocx(st) {
     const c = currentCase(), d = currentDeal();
-    if (!c || !d) return;
-    const check = S.validate(db, c, d);
-    const paras = S.buildDocument(db, c, d, { mark: false });
+    if (!c || !d || !st) return;
+    const check = S.validate(db, c, d, st);
+    const paras = S.buildDocument(db, c, d, { mark: false, statement: st });
     if (!paras.length) return note('Не включён ни один блок — выгружать нечего.');
 
-    const name = X.safeName('Заявление — ' + (c.number || 'дело') + ' — ' +
+    const name = X.safeName(S.kindOf(st).file + ' — ' + (c.number || 'дело') + ' — ' +
       (S.partyShort(S.counterpartyOf(c, d)) || 'контрагент'));
     const make = () => {
       X.download(X.docxBytes(paras, name), name + '.docx', X.DOCX_MIME);
-      if (d.statement.status !== 'ready' && check.ok) { d.statement.status = 'ready'; saveNow(); }
+      if (st.status !== 'ready' && check.ok) { st.status = 'ready'; saveNow(); }
     };
 
     if (check.errors.length) {
@@ -1549,7 +1606,8 @@
     if (el.dataset.blocktext) {
       const d = currentDeal();
       if (!d) return;
-      const ref = d.statement.blocks.find((b) => b.id === el.dataset.blocktext);
+      const st = currentDoc();
+      const ref = st && st.blocks.find((b) => b.id === el.dataset.blocktext);
       if (ref) { ref.text = el.value; save(); refreshBuilder(); }
       return;
     }
@@ -1617,8 +1675,9 @@
    */
   function syncConditionalBlocks() {
     const c = currentCase(), d = currentDeal();
-    if (!c || !d || !d.statement.blocks.length) return;
-    for (const b of S.statementBlocks(db, c, d)) {
+    const st = currentDoc();
+    if (!c || !d || !st || !st.blocks.length) return;
+    for (const b of S.statementBlocks(db, c, d, st)) {
       if (b.condition) b.ref.enabled = b.available;
     }
   }
@@ -1726,14 +1785,15 @@
       }
 
       case 'toggle-block': {
-        const ref = d.statement.blocks.find((b) => b.id === id);
+        const st = currentDoc();
+        const ref = st && st.blocks.find((b) => b.id === id);
         if (ref) {
           ref.enabled = btn.checked;
           btn.closest('.blk').classList.toggle('off', !ref.enabled);
           const counter = $('.blocks .bh .m');
           if (counter) {
-            const on = d.statement.blocks.filter((b) => b.enabled).length;
-            counter.textContent = 'включено ' + on + ' из ' + d.statement.blocks.length;
+            const on = st.blocks.filter((b) => b.enabled).length;
+            counter.textContent = 'включено ' + on + ' из ' + st.blocks.length;
           }
           save(); refreshBuilder();
         }
@@ -1752,23 +1812,44 @@
       }
 
       case 'reset-block': {
-        const ref = d.statement.blocks.find((b) => b.id === id);
+        const st = currentDoc();
+        const ref = st && st.blocks.find((b) => b.id === id);
         if (ref) { ref.text = null; saveNow(); render(); }
         break;
       }
 
       case 'reset-blocks':
         confirmBox('Собрать состав блоков заново по ответам на вопросы? Ручные правки состава пропадут.', () => {
-          d.statement.blocks = [];
-          S.statementBlocks(db, c, d);
+          const st = currentDoc();
+          st.blocks = [];
+          S.statementBlocks(db, c, d, st);
           saveNow(); render();
         });
         break;
 
       case 'save-version': saveVersion(); break;
       case 'versions': versionsModal(); break;
-      case 'preview-sheets': sheetsModal(); break;
-      case 'export-docx': exportDocx(); break;
+      case 'preview-sheets': sheetsModal(id ? S.findStatement(d, id) : currentDoc()); break;
+      case 'export-docx': exportDocx(id ? S.findStatement(d, id) : currentDoc()); break;
+
+      case 'add-doc-kind': {
+        const st = S.newStatement(id);
+        d.statements.push(st);
+        S.statementBlocks(db, c, d, st);
+        saveNow();
+        go('#/builder/' + c.id + '/' + d.id + '/' + st.id);
+        break;
+      }
+
+      case 'del-doc-kind': {
+        const st = S.findStatement(d, id);
+        if (!st) break;
+        confirmBox('Удалить «' + S.kindOf(st).name.toLowerCase() + '» вместе с версиями?', () => {
+          d.statements = d.statements.filter((x) => x.id !== id);
+          saveNow(); render();
+        });
+        break;
+      }
 
       case 'new-lib':
         libModal({ id: '', name: '', description: '', group: 'Свои блоки', align: 'justify', condition: '', template: '', custom: true });
@@ -1828,7 +1909,9 @@
     if (!dragId || !blk || !d) return;
     e.preventDefault();
 
-    const list = d.statement.blocks;
+    const st = currentDoc();
+    if (!st) return;
+    const list = st.blocks;
     const from = list.findIndex((b) => b.id === dragId);
     const to = list.findIndex((b) => b.id === blk.dataset.block);
     if (from < 0 || to < 0 || from === to) return;

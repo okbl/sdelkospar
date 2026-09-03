@@ -1923,6 +1923,8 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
         { name: 'AWARENESS_NOTE', label: 'Осведомлённость контрагента' },
         { name: 'CIRCUMSTANCES', label: 'Дополнительные обстоятельства' },
         { name: 'CREDITORS_SUM', label: 'Размер требований кредиторов' },
+        { name: 'ACCOUNTS_BALANCE', label: 'Остаток на счетах должника' },
+        { name: 'ACCOUNTS_BANKS', label: 'Банки, в которые направлены запросы' },
         { name: 'CLAIM_PRICE', label: 'Цена иска' },
         { name: 'FEE_AMOUNT', label: 'Государственная пошлина' },
         { name: 'FEE_WORDS', label: 'Государственная пошлина прописью' },
@@ -1944,6 +1946,7 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     {
       group: 'Документ', items: [
         { name: 'TODAY', label: 'Текущая дата' },
+        { name: 'OFFER_DAYS', label: 'Срок ответа на предложение, дней' },
         { name: 'ATTACHMENTS', label: 'Список приложений' }
       ]
     }
@@ -1955,6 +1958,40 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     return m;
   })();
 
+  /* ================= виды документов ================= */
+  /*
+   * По одной сделке готовится не один документ: к заявлению почти всегда идёт
+   * ходатайство об отсрочке пошлины, а до подачи — предложение о возврате
+   * в конкурсную массу (досудебный порядок, п. 4 ст. 20.3 Закона о банкротстве).
+   * Каждый собирается из своих блоков, но данные у них общие.
+   */
+  const DOC_KINDS = [
+    {
+      id: 'statement', name: 'Заявление об оспаривании сделки', short: 'Заявление',
+      file: 'Заявление',
+      // Порядок блоков задан явно: общие блоки (шапка, приложения, подпись)
+      // стоят в разных документах на разных местах, и выводить это из порядка
+      // объявления в библиотеке — значит однажды получить подпись в середине.
+      blocks: ['header', 'title', 'case_info', 'debtor_info', 'deal_info', 'object_info',
+        'deal_circumstances', 'performance', 'unequal', 'harm', 'affiliation', 'preference',
+        'awareness', 'okb_insolvency', 'okb_overdue', 'legal_basis', 'consequences',
+        'claims', 'fee', 'attachments', 'sign']
+    },
+    {
+      id: 'petition', name: 'Ходатайство об отсрочке уплаты госпошлины', short: 'Ходатайство',
+      file: 'Ходатайство об отсрочке',
+      blocks: ['header', 'petition_title', 'petition_rights', 'petition_fee',
+        'petition_grounds', 'petition_balance', 'petition_claims', 'attachments', 'sign']
+    },
+    {
+      id: 'offer', name: 'Предложение о возврате в конкурсную массу', short: 'Предложение',
+      file: 'Предложение о возврате',
+      blocks: ['offer_header', 'offer_title', 'offer_body', 'offer_claims', 'sign']
+    }
+  ];
+
+  const ALL_KINDS = DOC_KINDS.map((k) => k.id);
+
   /* ================= библиотека блоков ================= */
   /*
    * Условие блока (§11) записывается строкой вида `deal.unequal = true`.
@@ -1964,7 +2001,8 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
   const BLOCKS = [
     {
       id: 'header',
-      name: 'Шапка заявления',
+      kinds: ['statement', 'petition'],
+      name: 'Шапка документа',
       description: 'Суд, заявитель, должник, ответчик. Выравнивание по правому краю.',
       group: 'Реквизиты',
       align: 'right',
@@ -2238,16 +2276,211 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     },
     {
       id: 'attachments',
-      name: '15. Приложения',
+      kinds: ['statement', 'petition'],
+      name: 'Приложения',
       description: 'Список формируется автоматически из документов сделки, нумерация сквозная.',
       group: 'Требования',
       required: true,
       auto: 'attachments',
       template: 'Приложения:\n{{ATTACHMENTS}}'
     },
+    /* ---------- ходатайство об отсрочке уплаты госпошлины ---------- */
+    {
+      id: 'petition_title',
+      kinds: ['petition'],
+      name: 'Заголовок ходатайства',
+      description: 'Название документа по центру.',
+      group: 'Ходатайство',
+      align: 'center',
+      bold: true,
+      required: true,
+      template: 'ХОДАТАЙСТВО\nоб отсрочке уплаты государственной пошлины'
+    },
+    {
+      id: 'petition_rights',
+      kinds: ['petition'],
+      name: 'Полномочия управляющего',
+      description: 'Право оспаривать сделки и подсудность обособленного спора.',
+      group: 'Ходатайство',
+      required: true,
+      template:
+        'Согласно статье 61.1 Федерального закона от 26.10.2002 № 127-ФЗ «О несостоятельности ' +
+        '(банкротстве)» (далее — Закон о банкротстве) сделки, совершённые должником или другими ' +
+        'лицами за счёт должника, могут быть признаны недействительными в соответствии с ' +
+        'Гражданским кодексом Российской Федерации, а также по основаниям и в порядке, которые ' +
+        'указаны в Законе о банкротстве.\n' +
+        'На основании пунктов 1, 7 статьи 213.9 Закона о банкротстве участие финансового ' +
+        'управляющего в деле о банкротстве гражданина является обязательным; финансовый ' +
+        'управляющий вправе подавать в арбитражный суд от имени гражданина заявления о признании ' +
+        'недействительными сделок по основаниям, предусмотренным статьями 61.2 и 61.3 Закона ' +
+        'о банкротстве.\n' +
+        'Согласно статье 61.8 Закона о банкротстве заявление об оспаривании сделки должника ' +
+        'подаётся в арбитражный суд, рассматривающий дело о банкротстве должника, и подлежит ' +
+        'рассмотрению в деле о банкротстве должника.'
+    },
+    {
+      id: 'petition_fee',
+      kinds: ['petition'],
+      name: 'Размер пошлины и её исчисление',
+      description: 'Ссылки на НК РФ и Обзор судебной практики ВС РФ № 1 (2024).',
+      group: 'Ходатайство',
+      required: true,
+      template:
+        '{{MANAGER_TITLE}} подал(а) в суд заявление о признании сделки недействительной. ' +
+        'За подачу заявления подлежит уплате государственная пошлина в размере {{FEE_AMOUNT}} руб. ' +
+        '({{FEE_WORDS}}) — подпункт 2 пункта 1 статьи 333.21 НК РФ, ответ на вопрос 2 раздела ' +
+        '«Разъяснения по вопросам, возникающим в судебной практике» Обзора судебной практики ' +
+        'Верховного Суда Российской Федерации № 1 (2024).\n' +
+        'При подаче в деле о банкротстве заявлений и иных требований, связанных с разрешением ' +
+        'самостоятельного материально-правового спора, размер государственной пошлины исчисляется ' +
+        'по общим правилам исходя из существа предъявляемых требований в соответствии с пунктом 1 ' +
+        'статьи 333.21 НК РФ. Заявления об оспаривании торгов, о признании сделок ' +
+        'недействительными и об оспаривании решений собрания (комитета) кредиторов оплачиваются ' +
+        'государственной пошлиной в размере, предусмотренном для заявлений о признании сделок ' +
+        'недействительными (подпункт 2 пункта 1 статьи 333.21 НК РФ).\n' +
+        'Согласно подпункту 9 пункта 1 статьи 333.21 НК РФ по заявлениям, требованиям и иным ' +
+        'обособленным спорам, подлежащим рассмотрению в деле о банкротстве, государственная ' +
+        'пошлина уплачивается в размере 50 процентов государственной пошлины, определяемой ' +
+        'в соответствии с настоящим пунктом, исходя из существа заявленных требований.\n' +
+        'Расчёт: {{FEE_CALC}}.'
+    },
+    {
+      id: 'petition_grounds',
+      kinds: ['petition'],
+      name: 'Основания для отсрочки',
+      description: 'Имущественное положение и нормы об отсрочке.',
+      group: 'Ходатайство',
+      required: true,
+      template:
+        'При разрешении вопросов об отсрочке уплаты государственной пошлины (пункт 1 статьи 333.41 ' +
+        'НК РФ) по требованиям, предъявляемым арбитражными управляющими в интересах кредиторов, ' +
+        'судам следует принимать во внимание необходимость выполнения арбитражными управляющими ' +
+        'возложенных на них обязанностей в пределах сроков процедур банкротства, имущественное ' +
+        'состояние конкурсной массы на день предъявления требования и наличие у арбитражного ' +
+        'управляющего фактической возможности осуществить уплату государственной пошлины.\n' +
+        'Учитывая, что {{MANAGER_TITLE}} в интересах должника на данный момент не имеет ' +
+        'возможности оплатить государственную пошлину в размере {{FEE_AMOUNT}} руб. в связи ' +
+        'с необходимостью проведения мероприятий по выявлению имущества должника, заявитель ' +
+        'просит отсрочить уплату государственной пошлины до момента формирования конкурсной массы.\n' +
+        'В соответствии с пунктом 1 статьи 46 Конституции Российской Федерации каждому ' +
+        'гарантируется судебная защита его прав и свобод. В силу статьи 102 АПК РФ основания ' +
+        'и порядок уплаты государственной пошлины, а также порядок предоставления отсрочки или ' +
+        'рассрочки её уплаты устанавливаются в соответствии с законодательством Российской ' +
+        'Федерации о налогах и сборах. Статьями 333.21, 333.22 НК РФ определены размер и ' +
+        'особенности уплаты государственной пошлины; арбитражный суд, исходя из имущественного ' +
+        'положения плательщика, вправе отсрочить её уплату.\n' +
+        'Основания для отсрочки регламентированы пунктом 2 статьи 64 НК РФ; одним из них является ' +
+        'имущественное положение физического лица, исключающее возможность единовременной уплаты ' +
+        'налога (подпункт 4 пункта 2 статьи 64 НК РФ). Согласно пункту 1 статьи 333.41 и пункту 1 ' +
+        'статьи 64 НК РФ отсрочка предоставляется по ходатайству заинтересованного лица на срок, ' +
+        'не превышающий один год.'
+    },
+    {
+      id: 'petition_balance',
+      kinds: ['petition'],
+      name: 'Сведения об остатках на счетах',
+      description: 'Подтверждение имущественного положения должника.',
+      group: 'Ходатайство',
+      template:
+        'К документам, устанавливающим имущественное положение заинтересованной стороны, относятся ' +
+        'в том числе подтверждённые банком данные об отсутствии на счёте денежных средств в ' +
+        'размере, необходимом для уплаты государственной пошлины.\n' +
+        'В качестве таких документов прилагаются ответы на запросы {{MANAGER_ROLE_GEN}} ' +
+        'об остатке денежных средств на счетах: {{ACCOUNTS_BANKS}}. Согласно полученным ответам ' +
+        'остаток денежных средств на счетах {{DEBTOR_NAME_GEN}} составляет {{ACCOUNTS_BALANCE}} руб.'
+    },
+    {
+      id: 'petition_claims',
+      kinds: ['petition'],
+      name: 'Просительная часть ходатайства',
+      description: 'Требование об отсрочке.',
+      group: 'Ходатайство',
+      required: true,
+      template:
+        'На основании изложенного и руководствуясь статьёй 102 АПК РФ, статьями 64, 333.21, ' +
+        '333.22, 333.41 Налогового кодекса Российской Федерации,\n' +
+        '\n' +
+        'ПРОШУ:\n' +
+        '\n' +
+        'Отсрочить уплату государственной пошлины в размере {{FEE_AMOUNT}} руб. за подачу ' +
+        'заявления о признании недействительной сделки должника — {{DEAL_TYPE}} ' +
+        '№ {{DEAL_NUMBER}} от {{DEAL_DATE_SHORT}} — до окончания рассмотрения обособленного спора.'
+    },
+
+    /* ---------- предложение о возврате в конкурсную массу ---------- */
+    {
+      id: 'offer_header',
+      kinds: ['offer'],
+      name: 'Шапка письма',
+      description: 'Кому и от кого. Выравнивание по правому краю.',
+      group: 'Предложение',
+      align: 'right',
+      required: true,
+      template:
+        'Кому: {{COUNTERPARTY_NAME}}\n' +
+        '{{COUNTERPARTY_ADDRESS}}\n' +
+        '\n' +
+        'От: {{MANAGER_TITLE}}\n' +
+        '{{MANAGER_NAME}}\n' +
+        'адрес для корреспонденции: {{MANAGER_ADDRESS}}\n' +
+        '{{MANAGER_CONTACTS}}\n' +
+        '\n' +
+        'Дело № {{CASE_NUMBER}}'
+    },
+    {
+      id: 'offer_title',
+      kinds: ['offer'],
+      name: 'Заголовок предложения',
+      description: 'Название документа по центру.',
+      group: 'Предложение',
+      align: 'center',
+      bold: true,
+      required: true,
+      template: 'ПРЕДЛОЖЕНИЕ\nо возврате имущества в конкурсную массу'
+    },
+    {
+      id: 'offer_body',
+      kinds: ['offer'],
+      name: 'Существо предложения',
+      description: 'Досудебный порядок по пункту 4 статьи 20.3 Закона о банкротстве.',
+      group: 'Предложение',
+      required: true,
+      template:
+        '{{JUDICIAL_ACT}} {{DEBTOR_NAME}} признан(а) несостоятельным(ой) (банкротом), введена ' +
+        'процедура — {{PROCEDURE}}. {{MANAGER_ROLE_INS}} утверждён(а) {{MANAGER_NAME}}.\n' +
+        '{{DEAL_DATE}} между {{DEBTOR_SHORT}} и {{COUNTERPARTY_SHORT}} заключён {{DEAL_TYPE}} ' +
+        '№ {{DEAL_NUMBER}}, по которому Вам передано следующее имущество: {{OBJECT_DESCRIPTION}}. ' +
+        'Цена сделки составила {{DEAL_AMOUNT}} руб.\n' +
+        'По мнению {{MANAGER_ROLE_GEN}}, указанная сделка обладает признаками недействительности, ' +
+        'предусмотренными статьёй 61.2 Закона о банкротстве, и подлежит оспариванию в деле ' +
+        'о банкротстве должника.\n' +
+        'В силу статьи 61.7 Закона о банкротстве арбитражный суд может отказать в признании ' +
+        'сделки недействительной в случае, если приобретатель по оспариваемой сделке вернул всё ' +
+        'исполненное в конкурсную массу. В связи с этим, руководствуясь пунктом 4 статьи 20.3 ' +
+        'Закона о банкротстве, предлагаю Вам в добровольном порядке возвратить в конкурсную массу ' +
+        'должника указанное имущество либо возместить его действительную стоимость в размере ' +
+        '{{OBJECT_VALUE}} руб. ({{OBJECT_VALUE_WORDS}}).'
+    },
+    {
+      id: 'offer_claims',
+      kinds: ['offer'],
+      name: 'Срок и последствия',
+      description: 'Что произойдёт, если возврат не состоится.',
+      group: 'Предложение',
+      required: true,
+      template:
+        'Прошу сообщить о принятом решении в течение {{OFFER_DAYS}} календарных дней со дня ' +
+        'получения настоящего предложения по адресу: {{MANAGER_ADDRESS}}, либо по электронной ' +
+        'почте: {{MANAGER_CONTACTS}}.\n' +
+        'Если возврат не будет произведён в разумный срок после поступления настоящего ' +
+        'предложения, заявление об оспаривании сделки будет подано в арбитражный суд, а расходы ' +
+        'по уплате государственной пошлины и иные судебные издержки будут отнесены на Вас.'
+    },
+
     {
       id: 'sign',
-      name: '16. Подпись',
+      kinds: ALL_KINDS,
+      name: 'Подпись',
       description: 'Дата, должность и подпись заявителя.',
       group: 'Требования',
       required: true,
@@ -2271,6 +2504,7 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     MONTHS, money, moneyWords, dateLong, dateShort, plural, genitiveFio, genitiveOrg,
     DEAL_TYPES, OBJECT_TYPES, PROCEDURES, PARTY_KINDS, DOC_TYPES,
     FEE_SCALES, FEE_INVALIDATION, FEE_BANKRUPTCY_SHARE, feeByValue,
+    DOC_KINDS, ALL_KINDS,
     PERFORMANCE, COUNTER, AFFILIATION_GROUNDS, PREFERENCE_GROUNDS,
     CURRENCIES, REALTY_KINDS,
     VARS, VAR_INDEX, BLOCKS,
@@ -2844,6 +3078,9 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
       managerName: '', managerAddress: '', managerContacts: '', managerSro: '',
       managerInn: '', managerSnils: '', managerRegNumber: '',
       creditorsSum: '',
+      accountsBalance: '',  // остаток на счетах должника — для ходатайства об отсрочке
+      accountsBanks: '',
+      offerDays: '10',      // срок ответа на предложение о возврате
       debtorNameGen: '',    // «…имуществом должника Абрамовой Зарият Руслановны»
       okb: null,            // урезанный кредитный отчёт ОКБ, если он загружен
       debtorId: debtor.id,
@@ -2885,6 +3122,10 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
       preferenceGrounds: [], preferenceNote: '',
       harmNote: '', awarenessNote: '', circumstances: '',
       documents: [],
+      // Документов по сделке несколько: заявление, ходатайство об отсрочке
+      // пошлины, предложение о возврате. Данные у них общие, состав блоков —
+      // свой.
+      statements: [newStatement('statement')],
       fee: {
         claim: '',            // цена иска; пусто — берём рыночную стоимость объекта
         scale: 'org',         // шкала пп. 1 п. 1 ст. 333.21 НК РФ
@@ -2892,14 +3133,18 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
         withFixed: true,      // включать требование о признании сделки недействительной
         halved: true,         // пп. 9: обособленный спор в деле о банкротстве
         manual: ''            // ручная сумма, если расчёт расходится с практикой суда
-      },
-      statement: newStatement()
+      }
     };
   }
 
-  function newStatement() {
-    return { status: 'draft', blocks: [], versions: [], seq: 0 };
+  /** Документ по сделке: заявление, ходатайство или предложение. */
+  function newStatement(kind) {
+    return { id: uid(), kind: kind || 'statement', status: 'draft', blocks: [], versions: [], seq: 0 };
   }
+
+  const kindOf = (st) => D.byId(D.DOC_KINDS, (st && st.kind) || 'statement') || D.DOC_KINDS[0];
+  const findStatement = (deal, id) => (deal.statements || []).find((x) => x.id === id) || null;
+  const mainStatement = (deal) => (deal.statements || [])[0] || null;
 
   function newDocument() {
     return { id: uid(), name: '', type: 'contract', date: '', number: '', file: '', description: '', attach: true };
@@ -2934,10 +3179,17 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
       c.parties = c.parties || [];
       c.deals = c.deals || [];
       for (const d of c.deals) {
+        // Единственное заявление стало списком документов — переносим его,
+        // сохранив состав блоков и версии.
+        if (d.statement && !d.statements) {
+          d.statements = [Object.assign(newStatement('statement'), d.statement)];
+          delete d.statement;
+        }
         const proto = newDeal();
         for (const k of Object.keys(proto)) if (d[k] === undefined) d[k] = proto[k];
         d.object = Object.assign(newObject(d.object && d.object.kind), d.object || {});
-        d.statement = Object.assign(newStatement(), d.statement || {});
+        d.statements = (d.statements.length ? d.statements : [newStatement('statement')])
+          .map((st) => Object.assign(newStatement(st.kind), st));
       }
     }
     db.schema = SCHEMA;
@@ -3164,7 +3416,10 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
       FEE_CALC: feeKnown ? feeText(deal) : '',
 
       TODAY: D.dateLong(new Date().toISOString().slice(0, 10)),
-      ATTACHMENTS: attachments(deal).map((a, i) => (i + 1) + '. ' + a).join('\n')
+      ATTACHMENTS: attachments(deal).map((a, i) => (i + 1) + '. ' + a).join('\n'),
+      ACCOUNTS_BALANCE: D.money(kase.accountsBalance),
+      ACCOUNTS_BANKS: kase.accountsBanks,
+      OFFER_DAYS: kase.offerDays || '10'
     };
 
     // Цифры из кредитного отчёта — отдельным набором, чтобы блоки могли
@@ -3419,13 +3674,27 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
   /* ================= блоки заявления ================= */
 
   /** Библиотека = стандартные блоки (с учётом правок) + пользовательские. */
-  function library(db) {
+  function library(db, kind) {
     const has = (id) => Object.prototype.hasOwnProperty.call(db.edits || {}, id);
     const std = D.BLOCKS.map((b) => Object.assign({}, b, {
+      kinds: b.kinds || ['statement'],
       template: has(b.id) ? db.edits[b.id] : b.template,
       edited: has(b.id)
     }));
-    return std.concat((db.customBlocks || []).map((b) => Object.assign({ custom: true }, b)));
+    const own = (db.customBlocks || []).map((b) =>
+      Object.assign({ custom: true, kinds: b.kinds || ['statement'] }, b));
+    const all = std.concat(own);
+    if (!kind) return all;
+
+    // Порядок задан видом документа; всё, что в его перечень не попало,
+    // дописывается в конец — так свой блок не теряется.
+    const order = (D.byId(D.DOC_KINDS, kind) || {}).blocks || [];
+    const mine = all.filter((b) => (b.kinds || ['statement']).includes(kind));
+    const rank = (b) => {
+      const at = order.indexOf(b.id);
+      return at < 0 ? order.length : at;
+    };
+    return mine.slice().sort((a, b) => rank(a) - rank(b));
   }
 
   /**
@@ -3433,9 +3702,9 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
    * блоки включены, условные — по фактам сделки. Дальше решает пользователь,
    * и его выбор не перетирается.
    */
-  function statementBlocks(db, kase, deal) {
-    const lib = library(db);
-    const st = deal.statement;
+  function statementBlocks(db, kase, deal, statement) {
+    const st = statement || mainStatement(deal);
+    const lib = library(db, st.kind);
     const ctx = condContext(kase, deal);
     const known = new Map(lib.map((b) => [b.id, b]));
 
@@ -3481,10 +3750,11 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
    */
   function buildDocument(db, kase, deal, opts) {
     const mark = !!(opts && opts.mark);
+    const st = (opts && opts.statement) || mainStatement(deal);
     const vars = context(db, kase, deal);
     const out = [];
 
-    for (const b of statementBlocks(db, kase, deal)) {
+    for (const b of statementBlocks(db, kase, deal, st)) {
       if (!b.enabled) continue;
       const lines = render(b.template, vars, mark).split('\n').map((s) => s.replace(/[ \t]+$/, ''));
       let first = true;
@@ -3516,8 +3786,8 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
   }
 
   /** Плоский текст документа — для версий и сравнения. */
-  const documentText = (db, kase, deal) =>
-    buildDocument(db, kase, deal, { mark: false })
+  const documentText = (db, kase, deal, st) =>
+    buildDocument(db, kase, deal, { mark: false, statement: st })
       .map((p) => (p.kind === 'table'
         ? [p.head.join(' | ')].concat(p.rows.map((r) => r.join(' | ')),
           p.total ? [p.total.join(' | ')] : []).join('\n')
@@ -3530,7 +3800,8 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
    * Ошибки не дают сформировать документ, предупреждения — только сигналят.
    * Все проверки — обычные правила, никакой «оценки перспектив» (§28).
    */
-  function validate(db, kase, deal) {
+  function validate(db, kase, deal, statement) {
+    const st = statement || mainStatement(deal);
     const errors = [], warnings = [];
     const debtor = debtorOf(kase);
     const cp = counterpartyOf(kase, deal);
@@ -3544,8 +3815,8 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     req(deal.amount !== '' && deal.amount != null, 'Сумма сделки', 'deal');
     req(cp && partyName(cp), 'Контрагент по сделке', 'deal');
 
-    const blocks = statementBlocks(db, kase, deal);
-    if (!blocks.some((b) => b.enabled)) errors.push({ field: 'Не выбран ни один блок заявления', where: 'builder' });
+    const blocks = statementBlocks(db, kase, deal, st);
+    if (!blocks.some((b) => b.enabled)) errors.push({ field: 'Не выбран ни один блок документа', where: 'builder' });
 
     // Логические проверки (§14)
     const perfDate = deal.performance.date;
@@ -3595,21 +3866,21 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
 
   /* ================= версии ================= */
 
-  function saveVersion(db, kase, deal, note) {
-    const st = deal.statement;
+  function saveVersion(db, kase, deal, statement, note) {
+    const st = statement || mainStatement(deal);
     st.seq = (st.seq || 0) + 1;
     st.versions.push({
       id: uid(), no: st.seq, createdAt: now(), note: note || '',
-      text: documentText(db, kase, deal),
+      text: documentText(db, kase, deal, st),
       blocks: JSON.parse(JSON.stringify(st.blocks))
     });
     return st.versions[st.versions.length - 1];
   }
 
-  function restoreVersion(deal, versionId) {
-    const v = deal.statement.versions.find((x) => x.id === versionId);
+  function restoreVersion(statement, versionId) {
+    const v = statement.versions.find((x) => x.id === versionId);
     if (!v) return false;
-    deal.statement.blocks = JSON.parse(JSON.stringify(v.blocks));
+    statement.blocks = JSON.parse(JSON.stringify(v.blocks));
     return true;
   }
 
@@ -3654,15 +3925,19 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     copy.date = '';
     copy.contractDate = '';
     copy.documents = [];
-    copy.statement.versions = [];
-    copy.statement.seq = 0;
-    copy.statement.status = 'draft';
+    for (const st of copy.statements) {
+      st.id = uid();
+      st.versions = [];
+      st.seq = 0;
+      st.status = 'draft';
+    }
     return copy;
   }
 
   globalThis.ZStore = {
     KEY, SCHEMA, uid, now,
     newDb, newCase, newParty, newDeal, newObject, newDocument, newStatement,
+    kindOf, findStatement, mainStatement,
     load, save, migrate,
     partyName, partyShort, partyInn, partyOgrn, partyAddress, partyRequisites,
     findParty, debtorOf, counterpartyOf,
@@ -4167,7 +4442,7 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     if (!p.length) return { name: 'cases' };
     if (p[0] === 'case' && p[1]) return { name: 'case', caseId: p[1] };
     if (p[0] === 'deal' && p[2]) return { name: 'deal', caseId: p[1], dealId: p[2] };
-    if (p[0] === 'builder' && p[2]) return { name: 'builder', caseId: p[1], dealId: p[2] };
+    if (p[0] === 'builder' && p[2]) return { name: 'builder', caseId: p[1], dealId: p[2], docId: p[3] || '' };
     if (p[0] === 'blocks') return { name: 'blocks' };
     return { name: 'cases' };
   }
@@ -4178,6 +4453,13 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
   const currentDeal = () => {
     const c = currentCase();
     return c ? (c.deals.find((d) => d.id === route.dealId) || null) : null;
+  };
+
+  /** Документ, открытый в конструкторе. Без идентификатора — первый (заявление). */
+  const currentDoc = () => {
+    const d = currentDeal();
+    if (!d) return null;
+    return (route.docId && S.findStatement(d, route.docId)) || S.mainStatement(d);
   };
 
   /* ================= привязка полей ================= */
@@ -4274,7 +4556,7 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
 
   /** Сводка по делу: на неё опираются и карточка, и плитки. */
   function caseStats(c) {
-    const ready = c.deals.filter((d) => d.statement.status === 'ready').length;
+    const ready = c.deals.filter((d) => S.mainStatement(d).status === 'ready').length;
     return { deals: c.deals.length, ready: ready, draft: c.deals.length - ready, parties: c.parties.length };
   }
 
@@ -4465,6 +4747,18 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
       </div>
 
       <div class="card">
+        <h3>Для ходатайства и предложения</h3>
+        <p class="m">Нужно только этим двум документам — в заявление не попадает.</p>
+        <div class="form">
+          ${field({ label: 'Остаток на счетах должника, ₽', bind: 'case.accountsBalance', money: true,
+            hint: 'Подтверждает невозможность единовременно уплатить пошлину' })}
+          ${field({ label: 'Срок ответа на предложение, дней', bind: 'case.offerDays', placeholder: '10' })}
+          ${field({ label: 'Банки, в которые направлены запросы', bind: 'case.accountsBanks', type: 'textarea',
+            wide: true, rows: 2, placeholder: 'ПАО «Сбербанк», АО «ТБанк», ПАО «Совкомбанк»' })}
+        </div>
+      </div>
+
+      <div class="card">
         <h3>Арбитражный управляющий</h3>
         <p class="m">Пустые поля берутся из профиля — заполнять по каждому делу не нужно.</p>
         <div class="form">
@@ -4548,7 +4842,7 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
         <div style="margin-top:16px"><button class="btn pri" data-act="new-deal">+ Добавить сделку</button></div></div>`;
     }
     const rows = c.deals.map((d) => {
-      const ready = d.statement.status === 'ready';
+      const ready = S.mainStatement(d).status === 'ready';
       return `<tr class="click" data-go="#/deal/${c.id}/${d.id}">
         <td data-l="Контрагент"><b>${esc(S.partyShort(S.counterpartyOf(c, d)) || '— не выбран —')}</b></td>
         <td data-l="Тип">${esc(S.dealTypeName(d))}</td>
@@ -4574,7 +4868,7 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     const cp = S.counterpartyOf(c, d);
     const debtor = S.debtorOf(c);
     const v = S.validate(db, c, d);
-    const ready = d.statement.status === 'ready';
+    const ready = S.mainStatement(d).status === 'ready';
     const docs = (d.documents || []).length;
 
     const head = `<div class="crumbs"><a href="#/">Мои дела</a><span>›</span>
@@ -4597,20 +4891,17 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
         </div>
 
         <div class="t s4">
-          <div class="k">Заявление</div>
+          <div class="k">Документы по сделке</div>
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <span class="pill ${ready ? 'ready' : 'draft'}">${ready ? 'Готово' : 'Черновик'}</span>
+            <span class="pill ${ready ? 'ready' : 'draft'}">${ready ? 'Заявление готово' : 'Заявление — черновик'}</span>
             ${v.errors.length
         ? `<span class="chipm w"><span class="dot"></span>не заполнено: ${v.errors.length}</span>`
         : '<span class="chipm"><span class="dot"></span>обязательные поля заполнены</span>'}
           </div>
-          <p class="m">${d.statement.versions.length
-        ? 'Сохранённых версий: ' + d.statement.versions.length
-        : 'Версии пока не сохранялись.'}</p>
+          <p class="m">Готовится ${d.statements.length} ${D.plural(d.statements.length, 'документ', 'документа', 'документов')}
+            из ${D.DOC_KINDS.length} возможных. Данные у них общие.</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:auto;padding-top:8px">
-            <button class="btn btn-sm" data-act="preview-sheets">Предпросмотр</button>
-            <button class="btn btn-sm" data-act="export-docx">Скачать DOCX</button>
-            <button class="btn btn-sm danger" data-act="del-deal">Удалить</button>
+            <button class="btn btn-sm danger" data-act="del-deal">Удалить сделку</button>
           </div>
         </div>
       </div>
@@ -4633,7 +4924,45 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
             : tabs.deal === 'docs' ? dealDocsTab(d)
               : dealMainTab(d);
 
-    return head + body;
+    return head + body + dealPapers(c, d);
+  }
+
+  /**
+   * Документы сделки: заявление, ходатайство об отсрочке пошлины, предложение
+   * о возврате. Каждый собирается своими блоками, но данные берёт из той же
+   * сделки — вводить их повторно не нужно.
+   */
+  function dealPapers(c, d) {
+    const rows = d.statements.map((st) => {
+      const kind = S.kindOf(st);
+      const check = S.validate(db, c, d, st);
+      const on = st.blocks.filter((b) => b.enabled).length;
+      return `<div class="party">
+        <div style="min-width:0">
+          <div class="nm">${esc(kind.name)}</div>
+          <div class="rq">${on ? on + ' ' + D.plural(on, 'блок', 'блока', 'блоков') + ' включено' : 'ещё не собран'}${st.versions.length ? ' · версий: ' + st.versions.length : ''}${check.errors.length ? ' · не заполнено: ' + check.errors.length : ''}</div>
+        </div>
+        <span class="pill ${st.status === 'ready' ? 'ready' : 'draft'}">${st.status === 'ready' ? 'Готово' : 'Черновик'}</span>
+        <div class="sp">
+          <button class="btn btn-sm" data-act="preview-sheets" data-id="${st.id}">Листы</button>
+          <button class="btn btn-sm" data-act="export-docx" data-id="${st.id}">DOCX</button>
+          <button class="btn btn-sm pri" data-go="#/builder/${c.id}/${d.id}/${st.id}">Открыть</button>
+          ${st.kind === 'statement' ? '' : `<button class="btn btn-sm danger" data-act="del-doc-kind" data-id="${st.id}">✕</button>`}
+        </div>
+      </div>`;
+    }).join('');
+
+    const missing = D.DOC_KINDS.filter((k) => !d.statements.some((st) => st.kind === k.id));
+
+    return `<div class="card">
+      <h3>Документы по сделке</h3>
+      <p class="m">Реквизиты дела, сделки и расчёт пошлины у всех документов общие —
+        вводятся один раз.</p>
+      ${rows}
+      ${missing.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+        ${missing.map((k) => `<button class="btn" data-act="add-doc-kind" data-id="${k.id}">+ ${esc(k.short)}</button>`).join('')}
+      </div>` : ''}
+    </div>`;
   }
 
   function dealMainTab(d) {
@@ -4895,12 +5224,14 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
   /* ================= конструктор ================= */
 
   function screenBuilder() {
-    const c = currentCase(), d = currentDeal();
-    if (!c || !d) return notFound();
+    const c = currentCase(), d = currentDeal(), st = currentDoc();
+    if (!c || !d || !st) return notFound();
 
-    const blocks = S.statementBlocks(db, c, d);
+    const kind = S.kindOf(st);
+    const blocks = S.statementBlocks(db, c, d, st);
     const on = blocks.filter((b) => b.enabled).length;
-    const versions = d.statement.versions.length;
+    const versions = st.versions.length;
+    const others = d.statements.filter((x) => x.id !== st.id);
 
     return `<div class="crumbs"><a href="#/">Мои дела</a><span>›</span>
         <a href="#/case/${c.id}">${esc(c.number || 'дело')}</a><span>›</span>
@@ -4908,18 +5239,19 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
 
       <div class="bento anim">
         <div class="t hero s8">
-          <div class="k">Конструктор заявления</div>
+          <div class="k">${esc(kind.name)}</div>
           <h2>${esc(S.dealTypeName(d))}${d.number ? ' № ' + esc(d.number) : ''}</h2>
           <p class="said">${esc(S.partyShort(S.debtorOf(c)) || 'должник')} →
             <b>${esc(S.partyShort(S.counterpartyOf(c, d)) || 'контрагент не выбран')}</b>${d.amount !== '' ? ' · ' + esc(money0(d.amount)) + ' ₽' : ''}</p>
           <div class="act">
             <button class="btn pri" data-act="export-docx">Скачать DOCX</button>
             <button class="btn" data-act="preview-sheets">Листы и печать</button>
+            ${others.map((x) => `<button class="btn" data-go="#/builder/${c.id}/${d.id}/${x.id}">${esc(S.kindOf(x).short)}</button>`).join('')}
           </div>
         </div>
 
         <div class="t s4">
-          <div class="k">Версии заявления</div>
+          <div class="k">Версии документа</div>
           <div class="v">${versions}</div>
           <p class="m">Снимок состава блоков и текста: можно вернуться к предыдущей и сравнить построчно.</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:auto;padding-top:8px">
@@ -4940,14 +5272,14 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
             <button class="btn btn-sm" data-act="reset-blocks">Собрать заново по ответам</button>
             <button class="btn btn-sm" data-go="#/blocks">Библиотека блоков</button>
           </div>
-          <div class="check" id="check">${checkPanel(c, d)}</div>
+          <div class="check" id="check">${checkPanel(c, d, st)}</div>
         </div>
 
         <div class="right">
           <div class="preview">
             <div class="ph"><h3>Предпросмотр</h3>
               <span class="m">обновляется на каждое изменение</span></div>
-            <div class="paper" id="paper">${previewHtml(c, d)}</div>
+            <div class="paper" id="paper">${previewHtml(c, d, st)}</div>
           </div>
         </div>
       </div>`;
@@ -4983,8 +5315,8 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
   }
 
   /** Предпросмотр: незаполненные переменные подсвечены — сразу видно, чего не хватает. */
-  function previewHtml(c, d) {
-    const paras = S.buildDocument(db, c, d, { mark: true });
+  function previewHtml(c, d, st) {
+    const paras = S.buildDocument(db, c, d, { mark: true, statement: st });
     if (!paras.length) return '<p class="left" style="color:#8A867F">Не включён ни один блок.</p>';
     return paras.map((p) => {
       if (p.kind === 'table') return X.tableHtml(p);
@@ -4995,11 +5327,11 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     }).join('');
   }
 
-  function checkPanel(c, d) {
-    const v = S.validate(db, c, d);
+  function checkPanel(c, d, st) {
+    const v = S.validate(db, c, d, st);
     let html = '';
     if (v.errors.length) {
-      html += '<div class="note warn"><h4>Нельзя сформировать заявление</h4><ul>' +
+      html += '<div class="note warn"><h4>Нельзя сформировать документ</h4><ul>' +
         v.errors.map((e) => `<li>Не заполнено: ${esc(e.field)}</li>`).join('') + '</ul></div>';
     }
     if (v.warnings.length) {
@@ -5011,17 +5343,17 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
         v.missingVars.map((n) => esc(D.VAR_INDEX.has(n) ? D.VAR_INDEX.get(n).label : n)).join(', ') +
         '</li></ul></div>';
     }
-    if (!html) html = '<div class="note good"><b>Всё заполнено</b> — заявление можно выгружать.</div>';
+    if (!html) html = '<div class="note good"><b>Всё заполнено</b> — документ можно выгружать.</div>';
     return html;
   }
 
   function refreshBuilder() {
-    const c = currentCase(), d = currentDeal();
-    if (!c || !d) return;
+    const c = currentCase(), d = currentDeal(), st = currentDoc();
+    if (!c || !d || !st) return;
     const paper = $('#paper');
-    if (paper) paper.innerHTML = previewHtml(c, d);
+    if (paper) paper.innerHTML = previewHtml(c, d, st);
     const check = $('#check');
-    if (check) check.innerHTML = checkPanel(c, d);
+    if (check) check.innerHTML = checkPanel(c, d, st);
   }
 
   /* ================= библиотека блоков ================= */
@@ -5200,13 +5532,13 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
       });
   }
 
-  function sheetsModal() {
+  function sheetsModal(st) {
     const c = currentCase(), d = currentDeal();
-    if (!c || !d) return;
-    const paras = S.buildDocument(db, c, d, { mark: false });
+    if (!c || !d || !st) return;
+    const paras = S.buildDocument(db, c, d, { mark: false, statement: st });
     if (!paras.length) return note('Не включён ни один блок — печатать нечего.');
 
-    openModal(`<h3>Листы заявления</h3>
+    openModal(`<h3>Листы: ${esc(S.kindOf(st).name.toLowerCase())}</h3>
       <p class="lead">Так документ ляжет на бумагу и в PDF. Печать → «Сохранить как PDF».</p>
       <div class="sheets" id="sheets">${X.buildSheets(paras)}</div>
       <div class="foot">
@@ -5223,7 +5555,7 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
         window.print();
         setTimeout(() => document.body.classList.remove('printmode'), 500);
       });
-      $('#sheet-docx', root).addEventListener('click', exportDocx);
+      $('#sheet-docx', root).addEventListener('click', () => exportDocx(st));
     });
   }
 
@@ -5240,9 +5572,9 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
   }
 
   function versionsModal() {
-    const c = currentCase(), d = currentDeal();
-    if (!c || !d) return;
-    const vs = [...d.statement.versions].reverse();
+    const c = currentCase(), d = currentDeal(), st = currentDoc();
+    if (!c || !d || !st) return;
+    const vs = [...st.versions].reverse();
 
     const list = vs.length ? vs.map((v) => `<div class="v">
         <b>Версия ${v.no}</b>
@@ -5255,7 +5587,7 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
 
     const options = vs.map((v) => `<option value="${v.id}">Версия ${v.no}</option>`).join('');
 
-    openModal(`<h3>Версии заявления</h3>
+    openModal(`<h3>Версии — ${esc(S.kindOf(st).name.toLowerCase())}</h3>
       <p class="lead">Каждая версия — снимок состава блоков и собранного текста.</p>
       <div class="versions">${list}</div>
       ${vs.length ? `<div class="card" style="margin:14px 0 0;box-shadow:none">
@@ -5272,8 +5604,8 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
 
       const a = $('#cmp-a', root), b = $('#cmp-b', root);
       if (a && b) {
-        const textOf = (id) => id === 'current' ? S.documentText(db, c, d)
-          : (d.statement.versions.find((v) => v.id === id) || { text: '' }).text;
+        const textOf = (id) => id === 'current' ? S.documentText(db, c, d, st)
+          : (st.versions.find((v) => v.id === id) || { text: '' }).text;
         const draw = () => {
           $('#diff', root).innerHTML = S.diffLines(textOf(a.value), textOf(b.value))
             .map((l) => `<span class="${l.op === '+' ? 'add' : l.op === '-' ? 'del' : 'same'}">` +
@@ -5287,7 +5619,7 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
       root.addEventListener('click', (e) => {
         const btn = e.target.closest('[data-act]');
         if (!btn) return;
-        const v = d.statement.versions.find((x) => x.id === btn.dataset.id);
+        const v = st.versions.find((x) => x.id === btn.dataset.id);
         if (btn.dataset.act === 'view-version' && v) {
           close();
           openModal(`<h3>Версия ${v.no}</h3><div class="diff">${esc(v.text)}</div>
@@ -5295,7 +5627,7 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
         } else if (btn.dataset.act === 'restore-version' && v) {
           close();
           confirmBox('Восстановить версию ' + v.no + '? Текущий состав блоков будет заменён.', () => {
-            S.restoreVersion(d, v.id);
+            S.restoreVersion(st, v.id);
             saveNow();
             render();
           });
@@ -5407,26 +5739,26 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
   }
 
   function saveVersion() {
-    const c = currentCase(), d = currentDeal();
-    if (!c || !d) return;
-    const v = S.saveVersion(db, c, d, '');
+    const c = currentCase(), d = currentDeal(), st = currentDoc();
+    if (!c || !d || !st) return;
+    const v = S.saveVersion(db, c, d, st, '');
     saveNow();
     render();
     note('Сохранена версия ' + v.no + '.');
   }
 
-  function exportDocx() {
+  function exportDocx(st) {
     const c = currentCase(), d = currentDeal();
-    if (!c || !d) return;
-    const check = S.validate(db, c, d);
-    const paras = S.buildDocument(db, c, d, { mark: false });
+    if (!c || !d || !st) return;
+    const check = S.validate(db, c, d, st);
+    const paras = S.buildDocument(db, c, d, { mark: false, statement: st });
     if (!paras.length) return note('Не включён ни один блок — выгружать нечего.');
 
-    const name = X.safeName('Заявление — ' + (c.number || 'дело') + ' — ' +
+    const name = X.safeName(S.kindOf(st).file + ' — ' + (c.number || 'дело') + ' — ' +
       (S.partyShort(S.counterpartyOf(c, d)) || 'контрагент'));
     const make = () => {
       X.download(X.docxBytes(paras, name), name + '.docx', X.DOCX_MIME);
-      if (d.statement.status !== 'ready' && check.ok) { d.statement.status = 'ready'; saveNow(); }
+      if (st.status !== 'ready' && check.ok) { st.status = 'ready'; saveNow(); }
     };
 
     if (check.errors.length) {
@@ -5665,7 +5997,8 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     if (el.dataset.blocktext) {
       const d = currentDeal();
       if (!d) return;
-      const ref = d.statement.blocks.find((b) => b.id === el.dataset.blocktext);
+      const st = currentDoc();
+      const ref = st && st.blocks.find((b) => b.id === el.dataset.blocktext);
       if (ref) { ref.text = el.value; save(); refreshBuilder(); }
       return;
     }
@@ -5733,8 +6066,9 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
    */
   function syncConditionalBlocks() {
     const c = currentCase(), d = currentDeal();
-    if (!c || !d || !d.statement.blocks.length) return;
-    for (const b of S.statementBlocks(db, c, d)) {
+    const st = currentDoc();
+    if (!c || !d || !st || !st.blocks.length) return;
+    for (const b of S.statementBlocks(db, c, d, st)) {
       if (b.condition) b.ref.enabled = b.available;
     }
   }
@@ -5842,14 +6176,15 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
       }
 
       case 'toggle-block': {
-        const ref = d.statement.blocks.find((b) => b.id === id);
+        const st = currentDoc();
+        const ref = st && st.blocks.find((b) => b.id === id);
         if (ref) {
           ref.enabled = btn.checked;
           btn.closest('.blk').classList.toggle('off', !ref.enabled);
           const counter = $('.blocks .bh .m');
           if (counter) {
-            const on = d.statement.blocks.filter((b) => b.enabled).length;
-            counter.textContent = 'включено ' + on + ' из ' + d.statement.blocks.length;
+            const on = st.blocks.filter((b) => b.enabled).length;
+            counter.textContent = 'включено ' + on + ' из ' + st.blocks.length;
           }
           save(); refreshBuilder();
         }
@@ -5868,23 +6203,44 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
       }
 
       case 'reset-block': {
-        const ref = d.statement.blocks.find((b) => b.id === id);
+        const st = currentDoc();
+        const ref = st && st.blocks.find((b) => b.id === id);
         if (ref) { ref.text = null; saveNow(); render(); }
         break;
       }
 
       case 'reset-blocks':
         confirmBox('Собрать состав блоков заново по ответам на вопросы? Ручные правки состава пропадут.', () => {
-          d.statement.blocks = [];
-          S.statementBlocks(db, c, d);
+          const st = currentDoc();
+          st.blocks = [];
+          S.statementBlocks(db, c, d, st);
           saveNow(); render();
         });
         break;
 
       case 'save-version': saveVersion(); break;
       case 'versions': versionsModal(); break;
-      case 'preview-sheets': sheetsModal(); break;
-      case 'export-docx': exportDocx(); break;
+      case 'preview-sheets': sheetsModal(id ? S.findStatement(d, id) : currentDoc()); break;
+      case 'export-docx': exportDocx(id ? S.findStatement(d, id) : currentDoc()); break;
+
+      case 'add-doc-kind': {
+        const st = S.newStatement(id);
+        d.statements.push(st);
+        S.statementBlocks(db, c, d, st);
+        saveNow();
+        go('#/builder/' + c.id + '/' + d.id + '/' + st.id);
+        break;
+      }
+
+      case 'del-doc-kind': {
+        const st = S.findStatement(d, id);
+        if (!st) break;
+        confirmBox('Удалить «' + S.kindOf(st).name.toLowerCase() + '» вместе с версиями?', () => {
+          d.statements = d.statements.filter((x) => x.id !== id);
+          saveNow(); render();
+        });
+        break;
+      }
 
       case 'new-lib':
         libModal({ id: '', name: '', description: '', group: 'Свои блоки', align: 'justify', condition: '', template: '', custom: true });
@@ -5944,7 +6300,9 @@ globalThis["pdfjsLib"]={"getDocument":xe,"GlobalWorkerOptions":te,"version":Ie,"
     if (!dragId || !blk || !d) return;
     e.preventDefault();
 
-    const list = d.statement.blocks;
+    const st = currentDoc();
+    if (!st) return;
+    const list = st.blocks;
     const from = list.findIndex((b) => b.id === dragId);
     const to = list.findIndex((b) => b.id === blk.dataset.block);
     if (from < 0 || to < 0 || from === to) return;
