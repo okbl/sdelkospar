@@ -214,7 +214,7 @@
         </div>
         <div class="reg-act">
           <button class="btn" data-act="import-form">Загрузить печатную форму</button>
-          <button class="btn pri" data-act="new-case">+ Новое дело</button>
+          <button class="btn pri" data-act="new-case">Новое дело</button>
         </div>
       </div>
       <input class="find" id="find" type="search" value="${attr(find)}"
@@ -316,44 +316,32 @@
     const s = caseStats(c);
     const pct = s.deals ? Math.round(s.ready / s.deals * 100) : 0;
 
-    const head = `<div class="crumbs"><a href="#/">Мои дела</a><span>›</span>
-        <span>${esc(c.number || 'без номера')}</span></div>
-      <div class="bento anim">
-        <div class="t hero s8">
-          <div class="k">${esc(c.number || 'Номер дела не указан')}</div>
-          <h2>${esc(S.partyName(debtor) || 'Новое дело')}</h2>
-          <p class="said">${esc(D.nameOf(D.PROCEDURES, c.procedure))}${c.court ? ' · ' + esc(c.court) : ''}</p>
-          <div class="strip">
-            <div><b>${s.deals}</b>${D.plural(s.deals, 'сделка', 'сделки', 'сделок')}</div>
-            <div><b>${s.ready}</b>${D.plural(s.ready, 'заявление готово', 'заявления готовы', 'заявлений готово')}</div>
-            <div><b>${s.draft}</b>${D.plural(s.draft, 'черновик', 'черновика', 'черновиков')}</div>
-            <div><b>${s.parties}</b>${D.plural(s.parties, 'сторона', 'стороны', 'сторон')}</div>
+    const head = `<div class="scr">
+        <div class="scr-top">
+          <div>
+            <h1>${esc(S.partyName(debtor) || 'Должник не указан')}</h1>
+            <p class="m">${esc(c.number || 'номер дела не указан')} · ${esc(D.nameOf(D.PROCEDURES, c.procedure))}${c.court ? ' · ' + esc(c.court) : ''}</p>
           </div>
-          <div class="act"><button class="btn pri" data-act="new-deal">+ Добавить сделку</button></div>
-        </div>
-
-        <div class="t s4">
-          <div class="k">Кредитный отчёт ОКБ</div>
-          ${c.okb ? `<div class="v">${(c.okb.contracts || []).length}</div>
-            <p class="m">${esc(c.okb.fio || '')}${c.okb.reportDate ? ' · отчёт от ' + esc(D.dateShort(c.okb.reportDate)) : ''}.
-              По нему строятся таблицы просрочек в заявлении.</p>`
-        : '<p class="m">Не загружен. Загрузите PDF-отчёт ОКБ или «Кредистории» — приложение соберёт таблицы просрочек и момента неплатёжеспособности.</p>'}
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:auto;padding-top:8px">
-            <button class="btn btn-sm" data-act="import-okb">${c.okb ? 'Заменить отчёт' : 'Загрузить отчёт'}</button>
-            ${c.okb ? '<button class="btn btn-sm danger" data-act="drop-okb">Убрать</button>' : ''}
+          <div class="scr-act">
+            <button class="btn pri" data-act="new-deal">Добавить сделку</button>
+            <button class="btn" data-act="import-form">Обновить из печатной формы</button>
+            <button class="btn danger" data-act="del-case">Удалить дело</button>
           </div>
         </div>
 
-        <div class="t s4">
-          <div class="k">Готовность заявлений</div>
-          <div class="v">${pct}<small style="font-size:16px;color:var(--ink-3)"> %</small></div>
-          <div class="meter"><i class="${pct === 100 ? 'done' : ''}" style="width:${pct}%"></i></div>
-          <p class="m">${s.ready} из ${s.deals} ${D.plural(s.deals, 'сделки', 'сделок', 'сделок')} доведено до готового заявления.</p>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:auto;padding-top:8px">
-            <button class="btn btn-sm" data-act="import-form">Обновить из печатной формы</button>
-            <button class="btn btn-sm danger" data-act="del-case">Удалить дело</button>
-          </div>
-        </div>
+        <dl class="facts">
+          <div><dt>Сделок</dt><dd>${s.deals || '—'}</dd></div>
+          <div><dt>Заявлений готово</dt><dd>${s.ready || '—'}</dd></div>
+          <div><dt>Черновиков</dt><dd>${s.draft || '—'}</dd></div>
+          <div><dt>Сторон</dt><dd>${s.parties}</dd></div>
+          <div><dt>Готовность</dt><dd>${s.deals ? pct + ' %' : '—'}</dd></div>
+          <div class="wide"><dt>Кредитный отчёт ОКБ</dt><dd>${c.okb
+            ? esc((c.okb.contracts || []).length + ' ' + D.plural((c.okb.contracts || []).length, 'обязательство', 'обязательства', 'обязательств')) +
+              (c.okb.reportDate ? ' · от ' + esc(D.dateShort(c.okb.reportDate)) : '') +
+              ' <button class="linkbtn" data-act="import-okb">заменить</button>' +
+              ' <button class="linkbtn" data-act="drop-okb">убрать</button>'
+            : 'не загружен <button class="linkbtn" data-act="import-okb">загрузить</button>'}</dd></div>
+        </dl>
       </div>
 
       <div class="tabs">
@@ -486,7 +474,7 @@
       <p class="m">Сторону сделки достаточно завести один раз — дальше она выбирается из списка,
         а реквизиты подставляются сами.</p>
       ${rows || '<p class="hint">Кроме должника сторон пока нет.</p>'}
-      <div style="margin-top:12px"><button class="btn" data-act="new-party">+ Добавить сторону</button></div>
+      <div style="margin-top:12px"><button class="btn" data-act="new-party">Добавить сторону</button></div>
     </div>`;
   }
 
@@ -524,7 +512,7 @@
     if (!banks.length) {
       return step1 + `<div class="empty"><b>Банков пока нет</b>
         Загрузите сведения ФНС или добавьте банк вручную.
-        <div style="margin-top:16px"><button class="btn" data-act="add-bank">+ Добавить банк</button></div></div>`;
+        <div style="margin-top:16px"><button class="btn" data-act="add-bank">Добавить банк</button></div></div>`;
     }
 
     const rows = banks.map((b, i) => {
@@ -555,7 +543,7 @@
         Остаток берётся из справки, если её удалось прочитать; со скана — вписывается вручную.</p>
       ${rows}
       <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-        <button class="btn" data-act="add-bank">+ Добавить банк</button>
+        <button class="btn" data-act="add-bank">Добавить банк</button>
         <span class="m" style="margin-left:auto">В ходатайство войдёт ${on.length} ${D.plural(on.length, 'банк', 'банка', 'банков')},
           остаток ${total == null ? 'не определён' : esc(D.money(total)) + ' ₽'}.</span>
       </div>
@@ -568,7 +556,7 @@
     if (!c.deals.length) {
       return `<div class="empty"><b>Сделок пока нет</b>
         Добавьте сделку — приложение спросит только то, что нужно для заявления.
-        <div style="margin-top:16px"><button class="btn pri" data-act="new-deal">+ Добавить сделку</button></div></div>`;
+        <div style="margin-top:16px"><button class="btn pri" data-act="new-deal">Добавить сделку</button></div></div>`;
     }
     const rows = c.deals.map((d) => {
       const ready = S.mainStatement(d).status === 'ready';
@@ -585,7 +573,7 @@
     return `<div class="card">
       <table><thead><tr><th>Контрагент</th><th>Тип</th><th>Дата</th><th class="r">Сумма, ₽</th>
         <th>Документов</th><th>Статус</th></tr></thead><tbody>${rows}</tbody></table>
-      <div style="margin-top:14px"><button class="btn" data-act="new-deal">+ Добавить сделку</button></div>
+      <div style="margin-top:14px"><button class="btn" data-act="new-deal">Добавить сделку</button></div>
     </div>`;
   }
 
@@ -605,63 +593,45 @@
     const started = (d.grounds || []).length > 0;
     const grounds = S.groundNames(d);
 
-    const hero = started
-      ? `<div class="t hero s8">
-          <div class="k">${esc(S.dealTypeName(d))}${d.number ? ' № ' + esc(d.number) : ''}</div>
-          ${d.amount !== '' && d.amount != null
-        ? `<div class="big">${esc(money0(d.amount))}<small> ₽</small></div>`
-        : '<h2>Сумма сделки не указана</h2>'}
-          <p class="said">${esc(S.partyShort(debtor) || 'должник')} → <b>${esc(S.partyShort(cp) || 'контрагент не выбран')}</b></p>
-          <div class="strip">
-            <div><b>${esc(D.dateShort(d.date) || '—')}</b>дата сделки</div>
-            <div><b>${esc(D.nameOf(D.OBJECT_TYPES, d.object.kind))}</b>объект</div>
-            <div><b>${docs}</b>${D.plural(docs, 'документ', 'документа', 'документов')}</div>
+    const head = started
+      ? `<div class="scr">
+        <div class="scr-top">
+          <div>
+            <h1>${esc(S.dealTypeName(d))}${d.number ? ' № ' + esc(d.number) : ''}</h1>
+            <p class="m">${esc(S.partyShort(debtor) || 'должник')} → ${esc(S.partyShort(cp) || 'контрагент не выбран')}${d.date ? ' · ' + esc(D.dateShort(d.date)) : ''}</p>
           </div>
-          <div class="act">
+          <div class="scr-act">
             <button class="btn pri" data-go="#/builder/${c.id}/${d.id}">Открыть конструктор</button>
             <button class="btn" data-act="clone-deal">Создать на основе этой</button>
+            <button class="btn danger" data-act="del-deal">Удалить сделку</button>
           </div>
-        </div>`
-      : `<div class="t hero s8">
-          <div class="k">Новая сделка</div>
-          <h2>С чего начать</h2>
-          <p class="said">Выберите ниже, по какому пункту оспариваете сделку. От этого зависят
-            и разделы заявления, и то, какие вопросы приложение задаст дальше.</p>
-        </div>`;
+        </div>
 
-    const aside = started
-      ? `<div class="t s4">
-          <div class="k">Документы по сделке</div>
-          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-            <span class="pill ${ready ? 'ready' : 'draft'}">${ready ? 'Заявление готово' : 'Заявление — черновик'}</span>
-            ${v.errors.length
-        ? `<span class="chipm w"><span class="dot"></span>не заполнено: ${v.errors.length}</span>`
-        : '<span class="chipm"><span class="dot"></span>обязательные поля заполнены</span>'}
+        <dl class="facts">
+          <div><dt>Сумма сделки</dt><dd>${d.amount !== '' && d.amount != null ? esc(money0(d.amount)) + ' ₽' : '—'}</dd></div>
+          <div><dt>Дата</dt><dd>${esc(D.dateShort(d.date) || '—')}</dd></div>
+          <div><dt>Объект</dt><dd>${esc(D.nameOf(D.OBJECT_TYPES, d.object.kind))}</dd></div>
+          <div><dt>Документов</dt><dd>${docs || '—'}</dd></div>
+          <div><dt>Заявление</dt><dd>${ready ? 'готово' : 'черновик'}${v.errors.length
+            ? ', <span class="bad">не заполнено ' + v.errors.length + '</span>' : ''}</dd></div>
+          <div class="wide"><dt>Основание оспаривания</dt>
+            <dd>${esc(grounds.map((g) => g.name).join('; ')) || '<span class="bad">не выбрано</span>'}</dd></div>
+        </dl>
+      </div>`
+      : `<div class="scr">
+        <div class="scr-top">
+          <div>
+            <h1>Новая сделка</h1>
+            <p class="m">Выберите ниже, по какому пункту оспариваете сделку. От этого зависят
+              и разделы заявления, и то, какие вопросы приложение задаст дальше.</p>
           </div>
-          <p class="m">${esc(grounds.map((g) => g.name).join('; ')) || 'Основание не выбрано'}.</p>
-          <div style="margin-top:auto;padding-top:8px">
-            <button class="btn btn-sm danger" data-act="del-deal">Удалить сделку</button>
+          <div class="scr-act">
+            <button class="btn danger" data-act="del-deal">Удалить сделку</button>
           </div>
-        </div>`
-      : `<div class="t s4">
-          <div class="k">Дальше по шагам</div>
-          <div class="steps" style="margin-top:4px">
-            <div class="stp"><span class="n">1</span><div><b>Основание</b>
-              <span class="m">По какому пункту оспариваем.</span></div></div>
-            <div class="stp"><span class="n">2</span><div><b>Сделка и объект</b>
-              <span class="m">Даты, сумма, контрагент, имущество.</span></div></div>
-            <div class="stp"><span class="n">3</span><div><b>Документы</b>
-              <span class="m">Заявление, ходатайство, предложение.</span></div></div>
-          </div>
-          <div style="margin-top:auto;padding-top:8px">
-            <button class="linkbtn" data-act="del-deal">Удалить сделку</button>
-          </div>
-        </div>`;
+        </div>
+      </div>`;
 
-    const head = `<div class="crumbs"><a href="#/">Мои дела</a><span>›</span>
-        <a href="#/case/${c.id}">${esc(c.number || 'дело')}</a><span>›</span><span>сделка</span></div>
-      <div class="bento anim">${hero}${aside}</div>
-
+    const tail = `
       <div class="tabs">
         ${tab('deal', 'ground', 'Основание', (d.grounds || []).length || null)}
         ${tab('deal', 'main', 'Сделка')}
@@ -680,7 +650,7 @@
 
     // Список документов нужен, когда сделка уже описана; на шаге выбора
     // основания он только отвлекает.
-    return head + body + (tabs.deal === 'ground' ? '' : dealPapers(c, d));
+    return head + tail + body + (tabs.deal === 'ground' ? '' : dealPapers(c, d));
   }
 
   /**
@@ -714,7 +684,7 @@
         вводятся один раз.</p>
       ${rows}
       ${missing.length ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-        ${missing.map((k) => `<button class="btn" data-act="add-doc-kind" data-id="${k.id}">+ ${esc(k.short)}</button>`).join('')}
+        ${missing.map((k) => `<button class="btn" data-act="add-doc-kind" data-id="${k.id}">${esc(k.short)}</button>`).join('')}
       </div>` : ''}
     </div>`;
   }
@@ -795,7 +765,7 @@
           </div>
           <div class="sp"><button class="btn btn-sm" data-act="edit-party" data-id="${cp.id}">Изменить</button></div>
         </div>` : ''}
-      <div style="margin-top:12px"><button class="btn" data-act="new-party">+ Новая сторона</button></div>
+      <div style="margin-top:12px"><button class="btn" data-act="new-party">Новая сторона</button></div>
     </div>`;
   }
 
@@ -1005,7 +975,7 @@
     <div class="note calm">Формула сверена по четырём заявлениям из вашего архива: при цене иска
       205 000, 415 150 и 933 114 руб. расчёт совпадает до копейки. В четвёртом (1 418 640 руб.)
       в шаблоне указано 33 779,50 руб. — это только имущественная часть, без 7 500 руб.
-      за требование о признании сделки недействительной. Если так и задумано, снимите галочку выше.</p>`;
+      за требование о признании сделки недействительной. Если так и задумано, снимите галочку выше.</div>`;
   }
 
   function dealDocsTab(d) {
@@ -1033,7 +1003,7 @@
       ${docs.length ? `<table><thead><tr><th>№</th><th>Документ</th><th>Тип</th><th>Номер</th><th>Дата</th>
         <th>В приложения</th><th></th></tr></thead><tbody>${rows}</tbody></table>`
         : '<p class="hint">Документов пока нет.</p>'}
-      <div style="margin-top:14px"><button class="btn" data-act="new-doc">+ Добавить документ</button></div>
+      <div style="margin-top:14px"><button class="btn" data-act="new-doc">Добавить документ</button></div>
     </div>
     ${list.length ? `<div class="card"><h3>Приложения к заявлению</h3>
       <ol style="margin:10px 0 0;padding-left:22px;font-size:13.5px;color:var(--ink-2);line-height:1.7">
@@ -1059,54 +1029,36 @@
     const versions = st.versions.length;
     const others = d.statements.filter((x) => x.id !== st.id);
 
-    return `<div class="crumbs"><a href="#/">Мои дела</a><span>›</span>
-        <a href="#/case/${c.id}">${esc(c.number || 'дело')}</a><span>›</span>
-        <a href="#/deal/${c.id}/${d.id}">сделка</a><span>›</span><span>конструктор</span></div>
-
-      <div class="bento anim">
-        <div class="t hero s8">
-          <div class="k">${esc(kind.name)}</div>
-          <h2>${esc(S.dealTypeName(d))}${d.number ? ' № ' + esc(d.number) : ''}</h2>
-          <p class="said">${esc(S.partyShort(S.debtorOf(c)) || 'должник')} →
-            <b>${esc(S.partyShort(S.counterpartyOf(c, d)) || 'контрагент не выбран')}</b>${d.amount !== '' ? ' · ' + esc(money0(d.amount)) + ' ₽' : ''}</p>
-          <div class="act">
-            <button class="btn pri" data-act="export-docx">Скачать DOCX</button>
-            <button class="btn" data-act="preview-sheets">Листы и печать</button>
-            ${others.map((x) => `<button class="btn" data-go="#/builder/${c.id}/${d.id}/${x.id}">${esc(S.kindOf(x).short)}</button>`).join('')}
-          </div>
-        </div>
-
-        <div class="t s4">
-          <div class="k">Готовность</div>
-          <div class="v">${on}<small style="font-size:16px;color:var(--ink-3)"> из ${blocks.length}</small></div>
-          <div class="meter"><i class="${on === blocks.length ? 'done' : ''}" style="width:${Math.round(on / blocks.length * 100)}%"></i></div>
-          <p class="m">Разделов включено. Снимок текста можно сохранить и потом сравнить.</p>
-          <div style="margin-top:auto;padding-top:8px">
-            <button class="btn btn-sm" data-act="versions">Версии${versions ? ' · ' + versions : ''}</button>
-          </div>
-        </div>
+    return `<div class="docbar">
+        <span class="which">${others.map((x) => `<button class="tab" data-go="#/builder/${c.id}/${d.id}/${x.id}">${esc(S.kindOf(x).short)}</button>`).join('')}
+          <button class="tab on">${esc(kind.short)}</button></span>
+        <span class="scr-act">
+          <button class="btn" data-act="versions">Версии${versions ? ' · ' + versions : ''}</button>
+          <button class="btn" data-act="preview-sheets">Листы и печать</button>
+          <button class="btn pri" data-act="export-docx">Скачать DOCX</button>
+        </span>
       </div>
 
-      <div class="builder" style="padding-top:12px">
+      <div class="builder">
         <div class="bcol-form">
           <div class="blocks">
-            <div class="bh"><h3>Блоки заявления</h3>
-              <span class="m">включено ${on} из ${blocks.length}</span></div>
+            <div class="bh"><h3>Разделы</h3>
+              <p class="m">включено ${on} из ${blocks.length}</p></div>
             ${blocks.map(blockRow).join('')}
           </div>
-          <div style="display:flex;gap:14px;flex-wrap:wrap">
+          <div class="railacts">
             <button class="linkbtn" data-act="reset-blocks">Собрать заново по основаниям</button>
             <button class="linkbtn" data-go="#/blocks">Библиотека блоков</button>
           </div>
-          <div class="check" id="check">${checkPanel(c, d, st)}</div>
         </div>
 
         <div class="bcol-paper">
           <div class="preview">
-            <div class="ph"><h3>Предпросмотр</h3>
-              <span class="m">обновляется на каждое изменение</span></div>
+            <div class="ph"><h3>${esc(kind.name)}</h3>
+              <span class="m">${esc(c.number || 'дело')} · ${esc(S.partyShort(S.debtorOf(c)) || 'должник')}</span></div>
             <div class="paper" id="paper">${previewHtml(c, d, st)}</div>
           </div>
+          <div class="check" id="check">${checkPanel(c, d, st)}</div>
         </div>
       </div>`;
   }
@@ -1219,23 +1171,21 @@
       </div>
     </div>`).join('');
 
-    return `<div class="crumbs"><a href="#/">Мои дела</a><span>›</span><span>библиотека блоков</span></div>
-      <div class="bento anim">
-        <div class="t hero s8">
-          <div class="k">Библиотека блоков</div>
-          <div class="big">${lib.length}<small> ${D.plural(lib.length, 'блок', 'блока', 'блоков')}</small></div>
-          <p class="said">Тексты хранятся отдельно от программы: чтобы поменять формулировку,
-            править код не нужно.</p>
-          <div class="act"><button class="btn pri" data-act="new-lib">+ Новый блок</button></div>
-        </div>
-        <div class="t s4">
-          <div class="k">Свои блоки</div>
-          <div class="v">${own}</div>
-          <p class="m">Изменения применяются ко всем новым заявлениям. Уже собранные заявления,
-            в которых текст блока правился вручную, остаются как есть.</p>
+    return `<div class="scr">
+        <div class="scr-top">
+          <div>
+            <h1>Библиотека блоков</h1>
+            <p class="m">${lib.length} ${D.plural(lib.length, 'блок', 'блока', 'блоков')}, из них своих ${own}.
+              Тексты хранятся отдельно от программы: чтобы поменять формулировку, править код не нужно.</p>
+          </div>
+          <div class="scr-act"><button class="btn pri" data-act="new-lib">Новый блок</button></div>
         </div>
       </div>
-      <div class="card" style="margin-top:12px">${rows}</div>`;
+      <div class="card">
+        <p class="m">Изменения применяются ко всем новым заявлениям. Уже собранные заявления,
+          в которых текст блока правился вручную, остаются как есть.</p>
+        ${rows}
+      </div>`;
   }
 
   /* ================= модальные окна ================= */
@@ -1974,6 +1924,7 @@
           : route.name === 'blocks' ? screenBlocks()
             : screenCases();
     if (route.name === 'builder') save();     // statementBlocks мог достроить состав
+    $('#path').innerHTML = pathLine();
     document.title = titleFor() + ' — Конструктор заявлений';
     // Наверх — только при переходе на другой экран: перерисовка после ответа
     // на вопрос не должна утаскивать страницу от места, где человек читает.
@@ -1982,6 +1933,35 @@
   }
 
   let lastScreen = null;
+
+  /**
+   * Путь в верхней строке — единственная постоянная часть оформления.
+   * Заголовков экрана и хлебных крошек по отдельности нет: где мы находимся,
+   * сказано один раз и в одном месте.
+   */
+  function pathLine() {
+    const bits = [];
+    const link = (href, text) => `<a href="${href}">${esc(text)}</a>`;
+    const c = currentCase(), d = currentDeal(), st = currentDoc();
+
+    if (route.name === 'cases') return '<b>Мои дела</b>';
+    bits.push(link('#/', 'Мои дела'));
+    if (route.name === 'blocks') { bits.push('<b>библиотека блоков</b>'); return bits.join('<i>·</i>'); }
+    if (!c) return bits.join('<i>·</i>');
+
+    const num = c.number || 'дело без номера';
+    const debtor = S.partyShort(S.debtorOf(c));
+    if (route.name === 'case') bits.push('<b>' + esc(num) + '</b>', esc(debtor));
+    else bits.push(link('#/case/' + c.id, num), esc(debtor));
+
+    if (d) {
+      const name = S.dealTypeName(d) + (d.number ? ' № ' + d.number : '');
+      if (route.name === 'deal') bits.push('<b>' + esc(name) + '</b>');
+      else bits.push(link('#/deal/' + c.id + '/' + d.id, name));
+    }
+    if (route.name === 'builder' && st) bits.push('<b>' + esc(S.kindOf(st).name.toLowerCase()) + '</b>');
+    return bits.filter(Boolean).join('<i>·</i>');
+  }
 
   function titleFor() {
     const c = currentCase();

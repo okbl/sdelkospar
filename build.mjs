@@ -15,12 +15,9 @@ const src = (name) => fs.readFileSync(path.join(root, 'src', name), 'utf8');
 /** Внутри <script> последовательность </script> закрыла бы тег раньше времени. */
 const safe = (js) => js.replace(/<\/script/gi, '<\\/script');
 
-// Шрифт встроен как data:-URI: ссылка на CDN молча отвалилась бы при работе
-// с флешки без интернета, а вместе с ней и вся типографика.
-const fontPath = path.join(root, 'src', 'fonts', 'onest.css');
-if (!fs.existsSync(fontPath)) {
-  throw new Error('нет src/fonts/onest.css — запустите: node tools/fetch-font.mjs');
-}
+// Своего шрифта у приложения нет: интерфейс набирается системным гротеском,
+// документ — Times. Встроенная гарнитура занимала треть мегабайта и была
+// приметой оформления, от которого отказались.
 
 /*
  * pdf.js поставляется только как ES-модуль. Инлайн-модуль в HTML нельзя
@@ -61,7 +58,6 @@ const core = exposeExports(
   'pdfjsLib', ['getDocument', 'GlobalWorkerOptions', 'version', 'OPS']);
 
 const html = src('app.html')
-  .replace('/* @@FONT@@ */', () => fs.readFileSync(fontPath, 'utf8'))
   .replace('<!-- @@PDFJS_WORKER@@ -->', () => `<script type="module">${safe(worker)}</script>`)
   .replace('<!-- @@PDFJS@@ -->', () => `<script type="module">${safe(core)}</script>`)
   .replace('<!-- @@PARSER@@ -->', () => `<script>${safe(src('parser.js'))}</script>`)
@@ -73,7 +69,7 @@ const html = src('app.html')
   .replace('<!-- @@DOC@@ -->', () => `<script>${safe(src('doc.js'))}</script>`)
   .replace('<!-- @@APP@@ -->', () => `<script>${safe(src('app.js'))}</script>`);
 
-for (const marker of ['@@FONT@@', '@@PDFJS@@', '@@PDFJS_WORKER@@', '@@PARSER@@',
+for (const marker of ['@@PDFJS@@', '@@PDFJS_WORKER@@', '@@PARSER@@',
   '@@DATA@@', '@@OKB@@', '@@ACCOUNTS@@', '@@IMPORT@@', '@@STORE@@', '@@DOC@@', '@@APP@@']) {
   if (html.includes(marker)) throw new Error(`метка ${marker} не подставлена`);
 }
