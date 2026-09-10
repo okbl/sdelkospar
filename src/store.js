@@ -36,7 +36,7 @@
 
   function newParty(kind) {
     return {
-      id: uid(), kind: kind || 'org',
+      id: uid(), kind: kind || 'person',
       nameFull: '', nameShort: '', inn: '', ogrn: '',
       addressLegal: '', addressPostal: '', director: '', representative: '', powerBasis: '',
       fio: '', birthDate: '', birthPlace: '', snils: '', address: '', ogrnip: '',
@@ -45,12 +45,14 @@
   }
 
   function newCase() {
-    const debtor = newParty('org');
+    // Должник в этой работе всегда гражданин: банкротство физических лиц —
+    // единственная процедура, в которой приложение используется.
+    const debtor = newParty('person');
     debtor.role = 'debtor';
     return {
       id: uid(), createdAt: now(), updatedAt: now(),
       court: '', courtAddress: '', number: '',
-      procedure: 'bankruptcy', procedureDate: '', judicialAct: '', caseStartDate: '',
+      procedure: 'realization', procedureDate: '', judicialAct: '', caseStartDate: '',
       managerName: '', managerAddress: '', managerContacts: '', managerSro: '',
       managerInn: '', managerSnils: '', managerRegNumber: '',
       creditorsSum: '',
@@ -189,6 +191,10 @@
       c.parties = c.parties || [];
       c.deals = c.deals || [];
       c.accounts = (c.accounts || []).map((b) => Object.assign(newBank(), b));
+      // Приложение сузилось до банкротства граждан. Процедуры организаций
+      // сводим к реализации имущества: у гражданина она и подразумевалась,
+      // а «конкурсное производство» стояло просто как значение по умолчанию.
+      if ((D.LEGACY_PROCEDURES || []).includes(c.procedure)) c.procedure = 'realization';
       for (const d of c.deals) {
         // Единственное заявление стало списком документов — переносим его,
         // сохранив состав блоков и версии.
@@ -1005,7 +1011,7 @@
     req(kase.number, 'Номер дела', 'case');
     req(kase.court, 'Наименование суда', 'case');
     req(partyName(debtor), 'Наименование должника', 'case');
-    req(kase.managerName || db.profile.name, 'ФИО арбитражного управляющего', 'case');
+    req(kase.managerName || db.profile.name, 'ФИО финансового управляющего', 'case');
     req(deal.date, 'Дата сделки', 'deal');
     req(deal.amount !== '' && deal.amount != null, 'Сумма сделки', 'deal');
     req(cp && partyName(cp), 'Контрагент по сделке', 'deal');

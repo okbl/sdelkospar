@@ -34,15 +34,29 @@
   function save() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
+      touch();
       if (!S.save(db)) note('Не удалось сохранить: в браузере отключено локальное хранилище.');
     }, 200);
   }
-  const saveNow = () => { clearTimeout(saveTimer); S.save(db); };
+  const saveNow = () => { clearTimeout(saveTimer); touch(); S.save(db); };
+
+  /**
+   * Отметка «когда дело трогали в последний раз». Ставится только при работе
+   * внутри дела: на списке дел ничего не меняется, и переставлять там даты
+   * от одного захода на экран значило бы врать в столбце «изменено».
+   */
+  function touch() {
+    if (route.name === 'cases') return;
+    const c = currentCase();
+    if (c) c.updatedAt = new Date().toISOString();
+  }
 
   /* ================= маршрут ================= */
 
   let route = { name: 'cases' };
   let tabs = { case: 'req', deal: 'main' };
+  let find = '';                              // строка поиска в реестре дел
+  let sort = { by: 'updated', dir: 'desc' };  // сортировка реестра
   let openBlocks = new Set();
 
   function parseHash() {
@@ -169,98 +183,123 @@
     return { deals: c.deals.length, ready: ready, draft: c.deals.length - ready, parties: c.parties.length };
   }
 
+  /**
+   * Главная — реестр дел.
+   *
+   * Это экран, на который возвращаются каждый день, а не витрина. Поэтому
+   * здесь нет ни крупных цифр, ни рассказа о том, как работает приложение:
+   * человек, который его открыл, уже внутри. Есть то, что нужно в работе, —
+   * поиск, сортировка и плотный список, где на экран помещается три десятка
+   * дел, а не четыре.
+   */
   function screenCases() {
-    // Первый заход: то же приглашение, что экран загрузки у анализатора —
-    // одно крупное действие слева и три шага справа.
-    if (!db.cases.length) {
-      return `<div class="up">
-        <button class="drop" data-act="import-form">
-          <span class="ic">↑</span>
-          <b>Загрузите печатную форму</b>
-          <span>Суд, номер дела, должник и управляющий подставятся сами</span>
-        </button>
-        <div class="aside">
-          <div class="t">
-            <div class="steps">
-              <div class="stp"><span class="n">1</span><div><b>Заведите дело</b>
-                <span class="m">Из печатной формы вашей системы или вручную. Реквизиты
-                  подставятся во все заявления внутри дела.</span></div></div>
-              <div class="stp"><span class="n">2</span><div><b>Добавьте сделку</b>
-                <span class="m">Тип, объект, стороны и несколько вопросов об обстоятельствах.</span></div></div>
-              <div class="stp"><span class="n">3</span><div><b>Соберите заявление</b>
-                <span class="m">Отметьте блоки и скачайте DOCX или распечатайте в PDF.</span></div></div>
-            </div>
-          </div>
-          <div class="t">
-            <div class="k">Без печатной формы</div>
-            <p class="m" style="font-size:13px;color:var(--ink-2)">Дело можно завести и вручную —
-              реквизиты вводятся один раз, дальше подставляются сами.</p>
-            <div><button class="btn" data-act="new-case">+ Новое дело</button></div>
-          </div>
-          <div class="t">
-            <div class="k">Данные остаются у вас</div>
-            <p class="m" style="font-size:13px;color:var(--ink-2)">Дела хранятся в этом браузере.
-              Сервера у приложения нет — реквизиты должников и контрагентов никуда не отправляются,
-              страница работает и без интернета.</p>
-          </div>
-        </div>
-      </div>`;
-    }
+    if (!db.cases.length) return casesEmpty();
 
     const total = db.cases.reduce((a, c) => {
       const s = caseStats(c);
       return { deals: a.deals + s.deals, ready: a.ready + s.ready, draft: a.draft + s.draft };
     }, { deals: 0, ready: 0, draft: 0 });
 
-    const cards = db.cases.map((c) => {
-      const s = caseStats(c);
-      return `<button class="t link casecard s4" data-go="#/case/${c.id}">
-        <div class="no">${esc(c.number || 'номер не указан')}</div>
-        <h3>${esc(S.partyName(S.debtorOf(c)) || 'Должник не указан')}</h3>
-        <div class="m">${esc(D.nameOf(D.PROCEDURES, c.procedure))}${c.court ? ' · ' + esc(c.court) : ''}</div>
-        <div class="strip">
-          <div><b>${s.deals}</b>${D.plural(s.deals, 'сделка', 'сделки', 'сделок')}</div>
-          <div><b>${s.ready}</b>готово</div>
-          <div><b>${s.draft}</b>${D.plural(s.draft, 'черновик', 'черновика', 'черновиков')}</div>
+    const summary = [
+      db.cases.length + ' ' + D.plural(db.cases.length, 'дело', 'дела', 'дел'),
+      total.deals + ' ' + D.plural(total.deals, 'сделка', 'сделки', 'сделок'),
+      total.draft + ' ' + D.plural(total.draft, 'черновик', 'черновика', 'черновиков')
+    ].join(' · ');
+
+    return `<div class="reg">
+      <div class="reg-top">
+        <div>
+          <h1>Мои дела</h1>
+          <p class="m">${esc(summary)}</p>
         </div>
-      </button>`;
+        <div class="reg-act">
+          <button class="btn" data-act="import-form">Загрузить печатную форму</button>
+          <button class="btn pri" data-act="new-case">+ Новое дело</button>
+        </div>
+      </div>
+      <input class="find" id="find" type="search" value="${attr(find)}"
+        placeholder="Номер дела или фамилия должника" autocomplete="off">
+      <div class="reg-body" id="reg-body">${casesTable()}</div>
+    </div>`;
+  }
+
+  /* Столбцы реестра объявлены данными: заголовок, выравнивание и то, по
+     какому значению столбец сортируется. Иначе порядок в шапке и порядок
+     в строке однажды разъедутся. */
+  const COLUMNS = [
+    { id: 'number', name: '№ дела', get: (c) => c.number || '' },
+    { id: 'debtor', name: 'Должник', get: (c) => S.partyName(S.debtorOf(c)) || '' },
+    { id: 'court', name: 'Суд', get: (c) => c.court || '' },
+    { id: 'deals', name: 'Сделок', r: true, get: (c) => caseStats(c).deals },
+    { id: 'ready', name: 'Готово', r: true, get: (c) => caseStats(c).ready },
+    { id: 'updated', name: 'Изменено', r: true, get: (c) => c.updatedAt || c.createdAt || '' }
+  ];
+
+  /** Все суды здесь арбитражные — слова «Арбитражный суд» в каждой строке лишние. */
+  const shortCourt = (name) => String(name || '').replace(/^Арбитражный\s+суд\s+/i, '');
+
+  /** «сегодня», «вчера», дальше — датой: точность до минуты тут не нужна. */
+  function whenShort(iso) {
+    if (!iso) return '—';
+    const day = (d) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+    const diff = Math.round((day(new Date()) - day(new Date(iso))) / 86400000);
+    if (diff <= 0) return 'сегодня';
+    if (diff === 1) return 'вчера';
+    if (diff < 7) return diff + ' ' + D.plural(diff, 'день', 'дня', 'дней') + ' назад';
+    return D.dateShort(iso.slice(0, 10));
+  }
+
+  function casesFiltered() {
+    const q = find.trim().toLowerCase();
+    const hit = (c) => !q || [c.number, S.partyName(S.debtorOf(c)), c.court]
+      .some((v) => String(v || '').toLowerCase().includes(q));
+    const col = D.byId(COLUMNS, sort.by) || COLUMNS[5];
+    const sign = sort.dir === 'asc' ? 1 : -1;
+    return db.cases.filter(hit).slice().sort((a, b) => {
+      const x = col.get(a), y = col.get(b);
+      if (typeof x === 'number' && typeof y === 'number') return (x - y) * sign;
+      return String(x).localeCompare(String(y), 'ru') * sign;
+    });
+  }
+
+  function casesTable() {
+    const rows = casesFiltered();
+    if (!rows.length) {
+      return `<p class="hint" style="padding:18px 2px">По запросу «${esc(find)}» ничего не нашлось.</p>`;
+    }
+    const head = COLUMNS.map((col) =>
+      `<th${col.r ? ' class="r"' : ''}><button class="sortb${sort.by === col.id ? ' on' : ''}"
+        data-sort="${col.id}">${esc(col.name)}${sort.by === col.id ? (sort.dir === 'asc' ? ' ↑' : ' ↓') : ''}</button></th>`).join('');
+
+    const body = rows.map((c) => {
+      const s = caseStats(c);
+      const debtor = S.partyName(S.debtorOf(c));
+      return `<tr class="click" data-go="#/case/${c.id}">
+        <td data-l="№ дела"><span class="no">${esc(c.number || 'без номера')}</span></td>
+        <td data-l="Должник"><b>${esc(debtor || 'не указан')}</b></td>
+        <td data-l="Суд" class="sub" title="${attr(c.court)}">${esc(shortCourt(c.court) || '—')}</td>
+        <td class="r" data-l="Сделок">${s.deals || '—'}</td>
+        <td class="r" data-l="Готово">${s.ready ? s.ready : (s.deals ? '<span class="sub">0</span>' : '—')}</td>
+        <td class="r sub" data-l="Изменено">${esc(whenShort(c.updatedAt || c.createdAt))}</td>
+      </tr>`;
     }).join('');
 
-    return `<div class="bento anim">
-      <div class="t hero s8">
-        <div class="k">Мои дела</div>
-        <div class="big">${db.cases.length}<small> ${D.plural(db.cases.length, 'дело', 'дела', 'дел')}</small></div>
-        <p class="said">Реквизиты дела вводятся один раз и подставляются во все заявления внутри него —
-          ни суд, ни ИНН должника, ни данные контрагента переписывать не нужно.</p>
-        <div class="strip">
-          <div><b>${total.deals}</b>${D.plural(total.deals, 'сделка', 'сделки', 'сделок')}</div>
-          <div><b>${total.ready}</b>${D.plural(total.ready, 'заявление готово', 'заявления готовы', 'заявлений готово')}</div>
-          <div><b>${total.draft}</b>${D.plural(total.draft, 'черновик', 'черновика', 'черновиков')}</div>
-        </div>
-        <div class="act">
-          <button class="btn pri" data-act="import-form">Загрузить печатную форму</button>
-          <button class="btn" data-act="new-case">+ Новое дело</button>
-        </div>
-      </div>
+    return `<table class="reg-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  }
 
-      <div class="t s4">
-        <div class="k">Как это работает</div>
-        <div class="steps" style="margin-top:4px">
-          <div class="stp"><span class="n">1</span><div><b>Дело</b>
-            <span class="m">Суд, номер, должник, управляющий.</span></div></div>
-          <div class="stp"><span class="n">2</span><div><b>Сделка</b>
-            <span class="m">Объект, стороны, обстоятельства.</span></div></div>
-          <div class="stp"><span class="n">3</span><div><b>Заявление</b>
-            <span class="m">Блоки, предпросмотр, DOCX и PDF.</span></div></div>
-        </div>
-      </div>
-
-      ${cards}
-      <button class="t link s4" data-act="new-case"
-        style="border-style:dashed;align-items:center;justify-content:center;min-height:132px;
-               color:var(--ink-3);background:none;box-shadow:none">
-        <span style="font-size:26px;line-height:1">+</span><span>Новое дело</span>
+  /** Пустой экран показывается ровно один раз — до первого дела. */
+  function casesEmpty() {
+    return `<div class="reg">
+      <div class="reg-top"><div><h1>Мои дела</h1>
+        <p class="m">Пока ни одного дела.</p></div></div>
+      <button class="drop" data-act="import-form">
+        <b>Загрузите печатную форму</b>
+        <span>Суд, номер дела, должник и управляющий подставятся сами</span>
       </button>
+      <p class="m" style="margin-top:14px">Дело можно завести и вручную:
+        <button class="linkbtn" data-act="new-case">новое дело</button>.
+        Всё хранится в этом браузере — сервера у приложения нет, реквизиты должников
+        и контрагентов никуда не отправляются, страница работает и без интернета.</p>
     </div>`;
   }
 
@@ -354,7 +393,7 @@
       <div class="card">
         <h3>Должник</h3>
         <p class="m">Реквизиты должника подставляются в шапку, описание сделки и требования.</p>
-        ${partyForm(debtor, 'case.', debtorIndex(c))}
+        ${partyForm(debtor, 'case.', debtorIndex(c), true)}
       </div>
 
       <div class="card">
@@ -370,7 +409,7 @@
       </div>
 
       <div class="card">
-        <h3>Арбитражный управляющий</h3>
+        <h3>Финансовый управляющий</h3>
         <p class="m">Пустые поля берутся из профиля — заполнять по каждому делу не нужно.</p>
         <div class="form">
           ${field({ label: 'ФИО', bind: 'case.managerName', placeholder: db.profile.name || 'Иванов Иван Иванович' })}
@@ -386,11 +425,16 @@
 
   const debtorIndex = (c) => c.parties.findIndex((p) => p.id === c.debtorId);
 
-  /** Форма стороны: набор полей зависит от того, кто это — организация, ИП или гражданин. */
-  function partyForm(p, prefix, index) {
+  /**
+   * Форма стороны: набор полей зависит от того, кто это — организация, ИП
+   * или гражданин. У должника выбора нет: приложение работает только по
+   * банкротству физических лиц, и переключатель там был бы вопросом,
+   * на который всегда один ответ.
+   */
+  function partyForm(p, prefix, index, fixedKind) {
     if (!p) return '<p class="hint">Сторона не выбрана.</p>';
     const b = prefix === 'case.' ? `case.parties.${index}.` : 'party.';
-    const head = `<div class="f wide"><label class="lb">Тип стороны</label>
+    const head = fixedKind ? '' : `<div class="f wide"><label class="lb">Тип стороны</label>
       ${radios(b + 'kind', D.PARTY_KINDS, p.kind)}</div>`;
 
     let body;
@@ -1143,6 +1187,12 @@
     if (fee) fee.innerHTML = feeTable(d);
   }
 
+  /** Перерисовка одного реестра: строка поиска при этом не теряет фокус. */
+  function refreshRegistry() {
+    const body = $('#reg-body');
+    if (body) body.innerHTML = casesTable();
+  }
+
   function refreshBuilder() {
     const c = currentCase(), d = currentDeal(), st = currentDoc();
     if (!c || !d || !st) return;
@@ -1216,11 +1266,11 @@
     });
   }
 
-  function partyModal(party, onDone) {
+  function partyModal(party, onDone, fixedKind) {
     editParty = party;
-    openModal(`<h3>Сторона сделки</h3>
+    openModal(`<h3>${fixedKind ? 'Должник' : 'Сторона сделки'}</h3>
       <p class="lead">Реквизиты вводятся один раз и подставляются во все заявления по делу.</p>
-      <div id="party-body">${partyForm(party, '', 0)}</div>
+      <div id="party-body">${partyForm(party, '', 0, fixedKind)}</div>
       <div class="foot"><button class="btn" data-act="modal-close">Отмена</button>
         <button class="btn pri" id="party-save">Сохранить</button></div>`, (root, close) => {
       // Тип стороны меняет набор полей — перерисовываем только тело окна.
@@ -1228,7 +1278,7 @@
         const el = e.target.closest('[data-bind="party.kind"]');
         if (!el) return;
         editParty.kind = el.value;
-        $('#party-body', root).innerHTML = partyForm(editParty, '', 0);
+        $('#party-body', root).innerHTML = partyForm(editParty, '', 0, fixedKind);
       });
       $('#party-save', root).addEventListener('click', () => {
         close();
@@ -1260,7 +1310,7 @@
     openModal(`<h3>Профиль</h3>
       <p class="lead">Подставляется в дела, где поля управляющего оставлены пустыми.</p>
       <div class="form">
-        ${field({ label: 'ФИО арбитражного управляющего', bind: 'profile.name', wide: true })}
+        ${field({ label: 'ФИО финансового управляющего', bind: 'profile.name', wide: true })}
         ${field({ label: 'СРО', bind: 'profile.sro', wide: true })}
         ${field({ label: 'ИНН', bind: 'profile.inn' })}
         ${field({ label: 'СНИЛС', bind: 'profile.snils' })}
@@ -1946,6 +1996,12 @@
   document.addEventListener('input', (e) => {
     const el = e.target;
 
+    if (el.id === 'find') {
+      find = el.value;
+      refreshRegistry();
+      return;
+    }
+
     if (el.dataset.blocktext) {
       const d = currentDeal();
       if (!d) return;
@@ -2021,6 +2077,17 @@
   document.addEventListener('click', (e) => {
     const nav = e.target.closest('[data-go]');
     if (nav) { go(nav.dataset.go); return; }
+
+    const col = e.target.closest('[data-sort]');
+    if (col) {
+      const by = col.dataset.sort;
+      // Повторный клик по тому же столбцу переворачивает порядок. Новый
+      // столбец начинается с убывания: свежее и крупное сверху — то, что
+      // ищут в реестре чаще всего.
+      sort = sort.by === by ? { by: by, dir: sort.dir === 'asc' ? 'desc' : 'asc' } : { by: by, dir: 'desc' };
+      refreshRegistry();
+      return;
+    }
 
     const tab = e.target.closest('[data-tab]');
     if (tab) {
@@ -2101,7 +2168,7 @@
 
       case 'edit-party': {
         const p = S.findParty(c, id);
-        if (p) partyModal(p, () => { saveNow(); render(); });
+        if (p) partyModal(p, () => { saveNow(); render(); }, p.id === c.debtorId);
         break;
       }
 

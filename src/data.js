@@ -230,18 +230,27 @@
 
   // Падежи хранятся рядом с названием, а не выводятся правилами: в русском
   // языке склонение по правилам всё равно даёт осечки, а вариантов здесь шесть.
+  /*
+   * Только банкротство гражданина: должник в этой работе всегда физическое
+   * лицо, а управляющий — всегда финансовый. Процедур для организаций
+   * (наблюдение, оздоровление, внешнее управление, конкурсное производство)
+   * здесь нет: выбирать из шести пунктов, четыре из которых не встречаются
+   * ни разу, — значит каждый раз тратить внимание впустую.
+   */
   const PROCEDURES = [
-    { id: 'observation', name: 'наблюдение', manager: 'временный управляющий', managerGen: 'временного управляющего', managerIns: 'временным управляющим' },
-    { id: 'recovery', name: 'финансовое оздоровление', manager: 'административный управляющий', managerGen: 'административного управляющего', managerIns: 'административным управляющим' },
-    { id: 'external', name: 'внешнее управление', manager: 'внешний управляющий', managerGen: 'внешнего управляющего', managerIns: 'внешним управляющим' },
-    { id: 'bankruptcy', name: 'конкурсное производство', manager: 'конкурсный управляющий', managerGen: 'конкурсного управляющего', managerIns: 'конкурсным управляющим' },
-    { id: 'restructuring', name: 'реструктуризация долгов гражданина', manager: 'финансовый управляющий', managerGen: 'финансового управляющего', managerIns: 'финансовым управляющим' },
-    { id: 'realization', name: 'реализация имущества гражданина', manager: 'финансовый управляющий', managerGen: 'финансового управляющего', managerIns: 'финансовым управляющим' }
+    { id: 'realization', name: 'реализация имущества гражданина', manager: 'финансовый управляющий', managerGen: 'финансового управляющего', managerIns: 'финансовым управляющим' },
+    { id: 'restructuring', name: 'реструктуризация долгов гражданина', manager: 'финансовый управляющий', managerGen: 'финансового управляющего', managerIns: 'финансовым управляющим' }
   ];
 
+  // Процедуры организаций, встречавшиеся в старых делах: нужны только для
+  // переноса — их сведут к реализации имущества.
+  const LEGACY_PROCEDURES = ['observation', 'recovery', 'external', 'bankruptcy'];
+
+  // Должник — всегда гражданин, а вот ответчиком по сделке сплошь и рядом
+  // выступает общество или предприниматель, поэтому виды сторон остаются.
   const PARTY_KINDS = [
-    { id: 'org', name: 'Юридическое лицо' },
     { id: 'person', name: 'Физическое лицо' },
+    { id: 'org', name: 'Юридическое лицо' },
     { id: 'ip', name: 'Индивидуальный предприниматель' }
   ];
 
@@ -1141,7 +1150,7 @@
 
   globalThis.ZData = {
     MONTHS, money, moneyWords, dateLong, dateShort, plural, genitiveFio, genitiveOrg,
-    DEAL_TYPES, OBJECT_TYPES, PROCEDURES, PARTY_KINDS, DOC_TYPES,
+    DEAL_TYPES, OBJECT_TYPES, PROCEDURES, LEGACY_PROCEDURES, PARTY_KINDS, DOC_TYPES,
     FEE_SCALES, FEE_INVALIDATION, FEE_BANKRUPTCY_SHARE, feeByValue,
     DOC_KINDS, ALL_KINDS, GROUNDS,
     PERFORMANCE, AFFILIATION_GROUNDS, PREFERENCE_GROUNDS,
