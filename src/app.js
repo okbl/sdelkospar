@@ -1088,7 +1088,7 @@
       </div>
 
       <div class="builder" style="padding-top:12px">
-        <div class="left">
+        <div class="bcol-form">
           <div class="blocks">
             <div class="bh"><h3>Блоки заявления</h3>
               <span class="m">включено ${on} из ${blocks.length}</span></div>
@@ -1101,7 +1101,7 @@
           <div class="check" id="check">${checkPanel(c, d, st)}</div>
         </div>
 
-        <div class="right">
+        <div class="bcol-paper">
           <div class="preview">
             <div class="ph"><h3>Предпросмотр</h3>
               <span class="m">обновляется на каждое изменение</span></div>
