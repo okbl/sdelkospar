@@ -29,6 +29,7 @@
       profile: { name: '', sro: '', address: '', contacts: '', inn: '', snils: '', regNumber: '' },
       cases: [],
       customBlocks: [],     // блоки, созданные пользователем (§11)
+      banks: {},            // БИК/ИНН → название банка: справочник растёт от дела к делу
       edits: {}             // правки текстов стандартных блоков: id → template
     };
   }
@@ -53,7 +54,12 @@
       managerName: '', managerAddress: '', managerContacts: '', managerSro: '',
       managerInn: '', managerSnils: '', managerRegNumber: '',
       creditorsSum: '',
-      accountsBalance: '',  // остаток на счетах должника — для ходатайства об отсрочке
+      // Счета должника — для ходатайства об отсрочке. accounts заполняется
+      // из сведений ФНС и справок банков; accountsBalance и accountsBanks
+      // остаются на случай, когда счета вводят одной строкой, без разбора.
+      accounts: [],
+      accountsMeta: null,
+      accountsBalance: '',
       accountsBanks: '',
       offerDays: '10',      // срок ответа на предложение о возврате
       debtorNameGen: '',    // «…имуществом должника Абрамовой Зарият Руслановны»
@@ -62,6 +68,24 @@
       parties: [debtor],
       deals: []
     };
+  }
+
+  /**
+   * Банк со счетами должника.
+   *
+   * open/closed — номера счетов из сведений ФНС; в текст они не попадают,
+   * но по ним видно, откуда взялся банк, и можно проверить за приложением.
+   * balance — остаток: из справки, если она разобралась, иначе с рук.
+   */
+  function newBank(fields) {
+    return Object.assign({
+      id: uid(), bik: '', inn: '', name: '',
+      include: true,          // снятая галочка убирает банк из ходатайства
+      open: [], closed: [],
+      balance: '', balanceNote: '',
+      statement: '',          // имя файла справки — для строки приложения
+      source: 'manual'        // fns | statement | manual
+    }, fields || {});
   }
 
   function newObject(kind) {
@@ -164,6 +188,7 @@
       for (const k of Object.keys(cb)) if (c[k] === undefined && k !== 'parties' && k !== 'deals') c[k] = cb[k];
       c.parties = c.parties || [];
       c.deals = c.deals || [];
+      c.accounts = (c.accounts || []).map((b) => Object.assign(newBank(), b));
       for (const d of c.deals) {
         // Единственное заявление стало списком документов — переносим его,
         // сохранив состав блоков и версии.
@@ -308,7 +333,7 @@
    * DOCX и печати: расхождений между тем, что видно, и тем, что выгружено,
    * быть не должно.
    */
-  function context(db, kase, deal) {
+  function context(db, kase, deal, kind) {
     const debtor = debtorOf(kase);
     const cp = counterpartyOf(kase, deal);
     const proc = D.byId(D.PROCEDURES, kase.procedure);
@@ -318,6 +343,7 @@
     const claim = claimPrice(deal);
     const fee = feeCalc(deal);
     const feeKnown = fee.manual || claim > 0;
+    const total = accountsTotal(kase);
 
     const v = {
       CASE_NUMBER: kase.number,
@@ -419,9 +445,11 @@
       FEE_CALC: feeKnown ? feeText(deal) : '',
 
       TODAY: D.dateLong(new Date().toISOString().slice(0, 10)),
-      ATTACHMENTS: attachments(deal).map((a, i) => (i + 1) + '. ' + a).join('\n'),
-      ACCOUNTS_BALANCE: D.money(kase.accountsBalance),
-      ACCOUNTS_BANKS: kase.accountsBanks,
+      ATTACHMENTS: attachments(deal, kase, kind).map((a, i) => (i + 1) + '. ' + a).join('\n'),
+      ACCOUNTS_BALANCE: total == null ? '' : D.money(total),
+      ACCOUNTS_BALANCE_WORDS: total == null ? '' : D.moneyWords(total),
+      ACCOUNTS_BANKS: accountsBanksText(kase),
+      ACCOUNTS_COUNT: included(kase).length ? String(included(kase).length) : '',
       OFFER_DAYS: kase.offerDays || '10'
     };
 
@@ -694,9 +722,134 @@
     return line;
   }
 
+  /* ================= счета должника ================= */
+
+  const included = (kase) => (kase.accounts || []).filter((b) => b.include !== false);
+
+  const bankTitle = (b) => b.name || (b.bik ? 'банк, БИК ' + b.bik : 'банк');
+
+  /**
+   * Остаток по всем отмеченным банкам.
+   *
+   * Если счета не разбирались, а сумма вписана одной строкой в реквизитах
+   * дела, берётся она: ходатайство должно собираться и без загрузки файлов.
+   */
+  function accountsTotal(kase) {
+    const banks = included(kase);
+    if (!banks.length) return num(kase.accountsBalance);
+    let total = 0, known = false;
+    for (const b of banks) {
+      const n = num(b.balance);
+      if (n != null) { total += n; known = true; }
+    }
+    return known ? Math.round(total * 100) / 100 : null;
+  }
+
+  /**
+   * Перечень банков для текста ходатайства.
+   *
+   * Остаток печатается только там, где он есть и не нулевой: банк с нулём
+   * на счёте называется просто по имени — именно так эта фраза выглядит
+   * в готовых ходатайствах, и лишние «0,00» в ней только мешают читать.
+   */
+  function accountsBanksText(kase) {
+    const banks = included(kase);
+    if (!banks.length) return kase.accountsBanks || '';
+    return banks.map((b) => {
+      const n = num(b.balance);
+      return bankTitle(b) + (n ? ' — ' + D.money(n) + ' руб.' : '');
+    }).join(', ');
+  }
+
+  /** Строки приложения: сами сведения ФНС и по справке на каждый банк. */
+  function accountsAttachments(kase) {
+    const banks = included(kase);
+    if (!banks.length) return [];
+    const out = [];
+    if (kase.accountsMeta) out.push('Сведения об открытых и закрытых счетах должника');
+    for (const b of banks) {
+      out.push('Сведения об остатке денежных средств на счетах, открытых в ' + bankTitle(b));
+    }
+    return out;
+  }
+
+  /**
+   * Разобранные сведения ФНС → банки дела.
+   *
+   * Уже заведённые банки не затираются: человек мог поправить название или
+   * вписать остаток, и повторная загрузка справки не должна это стирать.
+   * Совпадение ищем по БИК, а при его отсутствии — по названию.
+   */
+  function applyFns(db, kase, parsed, fileName) {
+    const dir = db.banks || (db.banks = {});
+    let added = 0;
+    for (const found of parsed.banks) {
+      let bank = (kase.accounts || []).find((b) => b.bik && b.bik === found.bik);
+      if (!bank) {
+        bank = newBank({ bik: found.bik, source: 'fns' });
+        kase.accounts.push(bank);
+        added++;
+      }
+      if (!bank.inn) bank.inn = found.inn || '';
+      if (!bank.name) bank.name = ACC() ? ACC().bankName(found.bik, found.inn, dir, found.name) : (found.name || '');
+      bank.open = found.open.slice();
+      bank.closed = found.closed.slice();
+    }
+    kase.accountsMeta = {
+      file: fileName || '', loadedAt: now(),
+      pages: parsed.pages, unreadable: parsed.unreadable.slice(),
+      open: parsed.banks.reduce((n, b) => n + b.open.length, 0),
+      closed: parsed.closed
+    };
+    return added;
+  }
+
+  /**
+   * Разобранная справка банка → банк дела.
+   *
+   * Банк ищем по БИК из самой справки, затем по названию из имени файла.
+   * Не нашли — заводим новый: справка пришла, значит счёт в этом банке
+   * есть, даже если страница сведений ФНС с ним не прочиталась.
+   */
+  function applyStatement(db, kase, parsed, fileName) {
+    const dir = db.banks || (db.banks = {});
+    const fromFile = ACC() ? ACC().nameFromFile(fileName) : '';
+    const norm = (s) => String(s || '').toLowerCase().replace(/[«»"'()\s.-]/g, '');
+
+    let bank = parsed.bik ? (kase.accounts || []).find((b) => b.bik === parsed.bik) : null;
+    if (!bank && fromFile) {
+      bank = (kase.accounts || []).find((b) => b.name && (
+        norm(b.name).includes(norm(fromFile)) || norm(fromFile).includes(norm(b.name))));
+    }
+    if (!bank) {
+      bank = newBank({ bik: parsed.bik || '', source: 'statement' });
+      kase.accounts.push(bank);
+    }
+    if (!bank.bik && parsed.bik) bank.bik = parsed.bik;
+    if (!bank.name) bank.name = ACC() ? ACC().bankName(bank.bik, bank.inn, dir, fromFile) : fromFile;
+    bank.statement = fileName || '';
+    if (parsed.total != null) {
+      bank.balance = String(Math.round(parsed.total * 100) / 100);
+      bank.balanceNote = parsed.method;
+    } else {
+      bank.balanceNote = '';
+    }
+    // Название, введённое человеком, запоминаем: в следующем деле тот же
+    // БИК подпишется сам.
+    if (bank.bik && bank.name) dir[bank.bik] = bank.name;
+    return bank;
+  }
+
+  const ACC = () => globalThis.ZAccounts;
+
   /** Сквозной список приложений: нумерация пересобирается при каждом изменении (§16). */
-  function attachments(deal) {
-    return (deal.documents || []).filter((d) => d.attach !== false).map(documentLine);
+  function attachments(deal, kase, kind) {
+    const own = (deal.documents || []).filter((d) => d.attach !== false).map(documentLine);
+    // Ходатайство об отсрочке держится на банковских справках, и они
+    // перечисляются в нём сами: список банков уже собран, дублировать его
+    // руками в документах сделки — лишняя работа и лишний повод разойтись.
+    if (kind === 'petition' && kase) return accountsAttachments(kase).concat(own);
+    return own;
   }
 
   /**
@@ -793,7 +946,7 @@
   function buildDocument(db, kase, deal, opts) {
     const mark = !!(opts && opts.mark);
     const st = (opts && opts.statement) || mainStatement(deal);
-    const vars = context(db, kase, deal);
+    const vars = context(db, kase, deal, st.kind);
     const out = [];
 
     for (const b of statementBlocks(db, kase, deal, st)) {
@@ -896,12 +1049,29 @@
     if (on('preference') && !(deal.preferenceGrounds || []).length) {
       warnings.push('Выбран блок «Предпочтительное удовлетворение», но основания предпочтения не указаны.');
     }
-    if (on('attachments') && !attachments(deal).length) {
+    if (on('attachments') && !attachments(deal, kase, st.kind).length) {
       warnings.push('Блок «Приложения» включён, но к сделке не приложено ни одного документа.');
+    }
+    if (st.kind === 'petition') {
+      const banks = included(kase);
+      const blank = banks.filter((b) => num(b.balance) == null);
+      if (!banks.length && !kase.accountsBalance) {
+        warnings.push('Ходатайство об отсрочке опирается на остатки по счетам, а счета не заведены. ' +
+          'Загрузите сведения ФНС или впишите остаток вручную.');
+      } else if (blank.length) {
+        warnings.push('Остаток не указан по ' + blank.length + ' ' +
+          D.plural(blank.length, 'банку', 'банкам', 'банкам') + ': ' +
+          blank.map(bankTitle).join(', ') + '.');
+      }
+      const bad = (kase.accountsMeta && kase.accountsMeta.unreadable) || [];
+      if (bad.length) {
+        warnings.push('В сведениях ФНС не прочитаны страницы ' + bad.join(', ') +
+          ' — часть банков могла не попасть в список. Проверьте по файлу.');
+      }
     }
 
     // Незаполненные переменные включённых блоков
-    const vars = context(db, kase, deal);
+    const vars = context(db, kase, deal, st.kind);
     const missing = new Set();
     for (const b of blocks) if (b.enabled) for (const n of missingVars(b.template, vars)) missing.add(n);
 
@@ -990,6 +1160,8 @@
     claimPrice, feeCalc, feeText, debtorGen, managerTitle, debtorBlock,
     context, condContext, evalCondition, render, missingVars,
     documentLine, attachments,
+    newBank, included, bankTitle, accountsTotal, accountsBanksText, accountsAttachments,
+    applyFns, applyStatement,
     library, statementBlocks, buildDocument, documentText, autoTable,
     validate, saveVersion, restoreVersion, diffLines, cloneDeal,
     MISS_A, MISS_B

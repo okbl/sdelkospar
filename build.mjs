@@ -67,13 +67,14 @@ const html = src('app.html')
   .replace('<!-- @@PARSER@@ -->', () => `<script>${safe(src('parser.js'))}</script>`)
   .replace('<!-- @@DATA@@ -->', () => `<script>${safe(src('data.js'))}</script>`)
   .replace('<!-- @@OKB@@ -->', () => `<script>${safe(src('okb.js'))}</script>`)
+  .replace('<!-- @@ACCOUNTS@@ -->', () => `<script>${safe(src('accounts.js'))}</script>`)
   .replace('<!-- @@IMPORT@@ -->', () => `<script>${safe(src('import.js'))}</script>`)
   .replace('<!-- @@STORE@@ -->', () => `<script>${safe(src('store.js'))}</script>`)
   .replace('<!-- @@DOC@@ -->', () => `<script>${safe(src('doc.js'))}</script>`)
   .replace('<!-- @@APP@@ -->', () => `<script>${safe(src('app.js'))}</script>`);
 
 for (const marker of ['@@FONT@@', '@@PDFJS@@', '@@PDFJS_WORKER@@', '@@PARSER@@',
-  '@@DATA@@', '@@OKB@@', '@@IMPORT@@', '@@STORE@@', '@@DOC@@', '@@APP@@']) {
+  '@@DATA@@', '@@OKB@@', '@@ACCOUNTS@@', '@@IMPORT@@', '@@STORE@@', '@@DOC@@', '@@APP@@']) {
   if (html.includes(marker)) throw new Error(`метка ${marker} не подставлена`);
 }
 

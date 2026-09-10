@@ -321,11 +321,13 @@
         ${tab('case', 'req', 'Реквизиты дела')}
         ${tab('case', 'parties', 'Стороны', c.parties.length)}
         ${tab('case', 'deals', 'Сделки', c.deals.length)}
+        ${tab('case', 'accounts', 'Счета должника', (c.accounts || []).length)}
       </div>`;
 
     const body = tabs.case === 'parties' ? casePartiesTab(c)
       : tabs.case === 'deals' ? caseDealsTab(c)
-        : caseReqTab(c, debtor);
+        : tabs.case === 'accounts' ? caseAccountsTab(c)
+          : caseReqTab(c, debtor);
 
     return head + body;
   }
@@ -442,6 +444,80 @@
       ${rows || '<p class="hint">Кроме должника сторон пока нет.</p>'}
       <div style="margin-top:12px"><button class="btn" data-act="new-party">+ Добавить сторону</button></div>
     </div>`;
+  }
+
+  /**
+   * Счета должника: сведения ФНС → банки → справки об остатках.
+   *
+   * Порядок шагов задан самим документом. Сперва видно, где у должника
+   * открыты счета, потом по каждому банку подтягивается остаток, и только
+   * отмеченные банки попадают в ходатайство и в его приложения.
+   */
+  function caseAccountsTab(c) {
+    const banks = c.accounts || [];
+    const meta = c.accountsMeta;
+    const total = S.accountsTotal(c);
+    const on = S.included(c);
+
+    const step1 = `<div class="card">
+      <h3>Шаг 1. Сведения ФНС об открытых счетах</h3>
+      ${meta ? `<p class="m">${esc(meta.file || 'файл загружен')} · страниц ${meta.pages} ·
+          открытых счетов ${meta.open}${meta.closed ? ', закрытых ' + meta.closed : ''}.</p>
+        ${(meta.unreadable || []).length ? `<p class="hint" style="color:var(--acc)">
+          Не прочитаны страницы ${meta.unreadable.join(', ')}: скан этих страниц перевёрнут,
+          и цифры на нём распознались неверно. Банки с этих страниц придётся добавить
+          вручную — или они появятся сами, когда вы загрузите их справки об остатках.</p>` : ''}`
+      : `<p class="m">Загрузите PDF «Сведения об открытых и закрытых счетах». Приложение
+          возьмёт из него банки, в которых у должника есть <b>открытые</b> счета.
+          Пара «БИК — номер счёта» принимается только если сходится ключ проверки,
+          поэтому в список не попадёт банк, прочитанный неверно.</p>`}
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn ${meta ? '' : 'pri'}" data-act="import-fns">${meta ? 'Загрузить заново' : 'Загрузить сведения ФНС'}</button>
+        ${meta ? '<button class="btn btn-sm danger" data-act="drop-fns">Убрать</button>' : ''}
+      </div>
+    </div>`;
+
+    if (!banks.length) {
+      return step1 + `<div class="empty"><b>Банков пока нет</b>
+        Загрузите сведения ФНС или добавьте банк вручную.
+        <div style="margin-top:16px"><button class="btn" data-act="add-bank">+ Добавить банк</button></div></div>`;
+    }
+
+    const rows = banks.map((b, i) => {
+      return `<div class="party" style="align-items:flex-start;flex-wrap:wrap">
+        <label class="chk" style="margin:6px 10px 0 0"><input type="checkbox"
+          data-bind="case.accounts.${i}.include"${b.include !== false ? ' checked' : ''}><span></span></label>
+        <div style="min-width:220px;flex:1">
+          ${field({ bind: `case.accounts.${i}.name`, label: 'Банк', value: b.name,
+            placeholder: b.bik ? 'банк с БИК ' + b.bik : 'наименование банка' })}
+          <div class="rq">${b.bik ? 'БИК ' + esc(b.bik) : 'БИК не указан'}${b.inn ? ' · ИНН ' + esc(b.inn) : ''}
+            ${b.open.length ? ' · открытых счетов: ' + b.open.length : ''}${b.closed.length ? ', закрытых: ' + b.closed.length : ''}
+            ${b.statement ? ' · справка: ' + esc(b.statement) : ''}</div>
+        </div>
+        <div style="min-width:170px">
+          ${field({ bind: `case.accounts.${i}.balance`, label: 'Остаток, ₽', money: true, value: b.balance,
+            placeholder: '0,00', hint: b.balanceNote ? 'из справки: ' + b.balanceNote : 'из справки или вручную' })}
+        </div>
+        <div class="sp" style="padding-top:22px">
+          <button class="btn btn-sm" data-act="import-balance" data-id="${b.id}">Справка об остатке</button>
+          <button class="btn btn-sm danger" data-act="del-bank" data-id="${b.id}">Удалить</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    const step2 = `<div class="card">
+      <h3>Шаг 2. Справки банков об остатках</h3>
+      <p class="m">Снятая галочка убирает банк из ходатайства и из его приложений.
+        Остаток берётся из справки, если её удалось прочитать; со скана — вписывается вручную.</p>
+      ${rows}
+      <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn" data-act="add-bank">+ Добавить банк</button>
+        <span class="m" style="margin-left:auto">В ходатайство войдёт ${on.length} ${D.plural(on.length, 'банк', 'банка', 'банков')},
+          остаток ${total == null ? 'не определён' : esc(D.money(total)) + ' ₽'}.</span>
+      </div>
+    </div>`;
+
+    return step1 + step2;
   }
 
   function caseDealsTab(c) {
@@ -1678,6 +1754,161 @@
     }
   }
 
+  /* ================= счета должника ================= */
+
+  const ACC = () => globalThis.ZAccounts;
+
+  /** Текст PDF постранично — общий шаг для сведений ФНС и справок банков. */
+  async function pdfPages(file, onStep) {
+    const buf = await file.arrayBuffer();
+    const doc = await globalThis.pdfjsLib.getDocument({ data: new Uint8Array(buf), useSystemFonts: true }).promise;
+    const out = [];
+    for (let n = 1; n <= doc.numPages; n++) {
+      const tc = await (await doc.getPage(n)).getTextContent();
+      const t = ACC().pageText(tc.items);
+      out.push({ num: n, text: t.text, angle: t.angle });
+      if (onStep) await onStep(n, doc.numPages);
+    }
+    return out;
+  }
+
+  function progress(title) {
+    const close = openModal(`<h3>${esc(title)}</h3>
+      <p class="lead" id="pg-text">Читаю файл…</p>
+      <div class="meter"><i id="pg-bar" style="width:2%"></i></div>`);
+    return {
+      close: close,
+      step: (n, total) => {
+        const el = $('#pg-text'), bar = $('#pg-bar');
+        if (el) el.textContent = 'Страница ' + n + ' из ' + total;
+        if (bar) bar.style.width = Math.round(n / total * 100) + '%';
+        return new Promise((r) => setTimeout(r, 0));
+      }
+    };
+  }
+
+  async function importFns() {
+    const kase = currentCase();
+    if (!kase) return;
+    const file = await pickFile('application/pdf,.pdf');
+    if (!file) return;
+
+    const pg = progress('Читаю сведения ФНС');
+    try {
+      const pages = await pdfPages(file, pg.step);
+      const parsed = ACC().parseFns(pages);
+      if (!parsed.banks.length && !parsed.closedOnly.length) {
+        throw new Error('в файле не нашлось ни одного номера счёта, сошедшегося с БИК по ключу ' +
+          'проверки. Похоже, это не сведения ФНС об открытых и закрытых счетах — или скан ' +
+          'распознан настолько плохо, что верить ему нельзя');
+      }
+      const added = S.applyFns(db, kase, parsed, file.name);
+      saveNow();
+      pg.close();
+      tabs.case = 'accounts';
+      render();
+
+      const bad = parsed.unreadable;
+      note('Найдено ' + parsed.banks.length + ' ' +
+        D.plural(parsed.banks.length, 'банк', 'банка', 'банков') + ' с открытыми счетами' +
+        (added < parsed.banks.length ? ' (новых — ' + added + ')' : '') + '. ' +
+        (parsed.closed ? 'Закрытых счетов: ' + parsed.closed + ' — в ходатайство они не идут. ' : '') +
+        (bad.length ? 'Страницы ' + bad.join(', ') + ' прочитать не удалось: скан перевёрнут, ' +
+          'и цифры на нём распознались неверно. Банки с этих страниц добавьте вручную либо ' +
+          'загрузите их справки об остатках — банк заведётся сам. ' : '') +
+        'Проверьте названия банков: в сведениях ФНС они часто не читаются.');
+    } catch (e) {
+      pg.close();
+      note('Не удалось разобрать сведения: ' + (e && e.message ? e.message : e));
+    }
+  }
+
+  async function importBalance(bankId) {
+    const kase = currentCase();
+    if (!kase) return;
+    const file = await pickFile('application/pdf,.pdf');
+    if (!file) return;
+
+    const pg = progress('Читаю справку банка');
+    try {
+      const pages = await pdfPages(file, pg.step);
+      const text = pages.map((p) => p.text).join('\n');
+      const bal = ACC().parseBalance(text);
+      const bik = ACC().bikFromStatement(text);
+
+      const clicked = bankId ? (kase.accounts || []).find((b) => b.id === bankId) : null;
+      const aim = clicked ? targetBank(kase, clicked, bik, file.name) : { bank: null, moved: '', wrong: '' };
+      const bank = aim.bank
+        ? applyToBank(aim.bank, bal, bik, file.name)
+        : S.applyStatement(db, kase, { bik: bik, total: bal.total, method: bal.method }, file.name);
+
+      saveNow();
+      pg.close();
+      render();
+
+      const head = aim.moved
+        ? 'Справка легла не в ту строку, где нажата кнопка, а к «' + S.bankTitle(bank) +
+          '»: этот банк назван в самой справке (' + aim.moved + '). '
+        : aim.wrong
+          ? 'Справка приложена к «' + S.bankTitle(bank) + '», но в имени файла назван другой банк — ' +
+            aim.wrong + '. Проверьте, туда ли она легла. '
+          : '';
+
+      if (bal.total == null) {
+        note(head + 'Остаток из справки прочитать не удалось: в файле нет текстового слоя — это скан. ' +
+          'Впишите сумму по «' + S.bankTitle(bank) + '» вручную, приложение ничего не додумывает.');
+      } else {
+        note(head + 'Остаток по «' + S.bankTitle(bank) + '» — ' + D.money(bal.total) + ' ₽ (' + bal.method +
+          (bal.parts.length > 1 ? ', сумма по ' + bal.parts.length + ' счетам' : '') +
+          '). Проверьте цифру по справке и поправьте, если банк печатает её иначе.');
+      }
+    } catch (e) {
+      pg.close();
+      note('Не удалось разобрать справку: ' + (e && e.message ? e.message : e));
+    }
+  }
+
+  const sameBank = (a, b) => {
+    const n = (s2) => String(s2 || '').toLowerCase().replace(/[«»"'()\s.,-]/g, '');
+    if (!n(a) || !n(b)) return false;
+    return n(a).includes(n(b)) || n(b).includes(n(a));
+  };
+
+  /**
+   * Куда лечь справке.
+   *
+   * По умолчанию — в ту строку, где нажата кнопка: человек знает, что делает.
+   * Но если справка сама называет другой банк из списка — БИК в тексте или
+   * название в имени файла, — она уходит туда: промахнуться строкой в списке
+   * из восьми банков легко, а неверный остаток в ходатайстве не заметен.
+   */
+  function targetBank(kase, clicked, bik, fileName) {
+    const list = kase.accounts || [];
+    const byBik = bik ? list.find((b) => b.bik === bik) : null;
+    if (byBik && byBik !== clicked) return { bank: byBik, moved: 'БИК ' + bik, wrong: '' };
+
+    const fromFile = ACC().nameFromFile(fileName);
+    if (fromFile && !sameBank(clicked.name, fromFile)) {
+      const byName = list.find((b) => b !== clicked && sameBank(b.name, fromFile));
+      if (byName) return { bank: byName, moved: 'имя файла', wrong: '' };
+      // Другого подходящего банка в списке нет: строку не меняем, но и молчать
+      // об этом нельзя.
+      if (clicked.name) return { bank: clicked, moved: '', wrong: fromFile };
+    }
+    return { bank: clicked, moved: '', wrong: '' };
+  }
+
+  /** Справка, положенная в выбранную строку банка. */
+  function applyToBank(bank, bal, bik, fileName) {
+    if (!bank.bik && bik) bank.bik = bik;
+    if (!bank.name) bank.name = ACC().bankName(bank.bik, bank.inn, db.banks, ACC().nameFromFile(fileName));
+    bank.statement = fileName || '';
+    bank.balance = bal.total == null ? bank.balance : String(Math.round(bal.total * 100) / 100);
+    bank.balanceNote = bal.total == null ? '' : bal.method;
+    if (bank.bik && bank.name) db.banks[bank.bik] = bank.name;
+    return bank;
+  }
+
   /* ================= отрисовка ================= */
 
   function notFound() {
@@ -1810,6 +2041,22 @@
       case 'new-case': newCase(); break;
       case 'import-form': importPrintForm(); break;
       case 'import-okb': importOkb(); break;
+      case 'import-fns': importFns(); break;
+      case 'import-balance': importBalance(id); break;
+      case 'add-bank':
+        c.accounts.push(S.newBank({ source: 'manual' }));
+        saveNow(); render();
+        break;
+      case 'del-bank':
+        c.accounts = c.accounts.filter((b) => b.id !== id);
+        saveNow(); render();
+        break;
+      case 'drop-fns':
+        confirmBox('Убрать сведения ФНС? Банки и остатки останутся — удалится только отметка о файле.', () => {
+          c.accountsMeta = null;
+          saveNow(); render();
+        });
+        break;
 
       case 'drop-okb':
         confirmBox('Убрать кредитный отчёт из дела? Таблицы по нему исчезнут из заявлений.', () => {
