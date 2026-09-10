@@ -345,16 +345,14 @@
       </div>
 
       <div class="tabs">
-        ${tab('case', 'req', 'Реквизиты дела')}
-        ${tab('case', 'parties', 'Стороны', c.parties.length)}
+        ${tab('case', 'req', 'Дело')}
         ${tab('case', 'deals', 'Сделки', c.deals.length)}
-        ${tab('case', 'accounts', 'Счета должника', (c.accounts || []).length)}
       </div>`;
 
-    const body = tabs.case === 'parties' ? casePartiesTab(c)
-      : tabs.case === 'deals' ? caseDealsTab(c)
-        : tabs.case === 'accounts' ? caseAccountsTab(c)
-          : caseReqTab(c, debtor);
+    // Стороны и счета были отдельными вкладками. Ни то, ни другое не экран:
+    // это два раздела реквизитов, и счета вдобавок нужны одному документу
+    // из трёх. Убраны в свёрнутые разделы — открываются, когда нужны.
+    const body = tabs.case === 'deals' ? caseDealsTab(c) : caseReqTab(c, debtor);
 
     return head + body;
   }
@@ -362,7 +360,6 @@
   function caseReqTab(c, debtor) {
     return `<div class="card">
         <h3>Суд и дело</h3>
-        <p class="m">Эти сведения попадут в шапку каждого заявления по делу.</p>
         <div class="form">
           ${field({ label: 'Арбитражный суд', bind: 'case.court', required: true, placeholder: 'Арбитражный суд города Москвы' })}
           ${field({ label: 'Номер дела', bind: 'case.number', required: true, placeholder: 'А40-000000/2025' })}
@@ -380,24 +377,22 @@
 
       <div class="card">
         <h3>Должник</h3>
-        <p class="m">Реквизиты должника подставляются в шапку, описание сделки и требования.</p>
         ${partyForm(debtor, 'case.', debtorIndex(c), true)}
       </div>
 
-      <div class="card">
-        <h3>Для ходатайства и предложения</h3>
-        <p class="m">Нужно только этим двум документам — в заявление не попадает.</p>
-        <div class="form">
-          ${field({ label: 'Остаток на счетах должника, ₽', bind: 'case.accountsBalance', money: true,
-            hint: 'Подтверждает невозможность единовременно уплатить пошлину' })}
-          ${field({ label: 'Срок ответа на предложение, дней', bind: 'case.offerDays', placeholder: '10' })}
-          ${field({ label: 'Банки, в которые направлены запросы', bind: 'case.accountsBanks', type: 'textarea',
-            wide: true, rows: 2, placeholder: 'ПАО «Сбербанк», АО «ТБанк», ПАО «Совкомбанк»' })}
-        </div>
-      </div>
+      <details class="fold"${(c.parties.length > 1) ? ' open' : ''}>
+        <summary>Стороны дела<span>${c.parties.length}</span></summary>
+        ${casePartiesTab(c)}
+      </details>
 
-      <div class="card">
-        <h3>Финансовый управляющий</h3>
+      <details class="fold"${(c.accounts || []).length ? ' open' : ''}>
+        <summary>Счета должника<span>для ходатайства об отсрочке</span></summary>
+        ${caseAccountsTab(c)}
+      </details>
+
+      <details class="fold">
+        <summary>Финансовый управляющий<span>из профиля</span></summary>
+        <div class="card">
         <p class="m">Пустые поля берутся из профиля — заполнять по каждому делу не нужно.</p>
         <div class="form">
           ${field({ label: 'ФИО', bind: 'case.managerName', placeholder: db.profile.name || 'Иванов Иван Иванович' })}
@@ -407,8 +402,10 @@
           ${field({ label: 'Регистрационный номер', bind: 'case.managerRegNumber', placeholder: db.profile.regNumber || '' })}
           ${field({ label: 'Адрес для корреспонденции', bind: 'case.managerAddress', wide: true, placeholder: db.profile.address || '' })}
           ${field({ label: 'Контакты', bind: 'case.managerContacts', wide: true, placeholder: db.profile.contacts || 'тел. +7 000 000-00-00, e-mail: ...' })}
+          ${field({ label: 'Срок ответа на предложение о возврате, дней', bind: 'case.offerDays', placeholder: '10' })}
         </div>
-      </div>`;
+        </div>
+      </details>`;
   }
 
   const debtorIndex = (c) => c.parties.findIndex((p) => p.id === c.debtorId);
@@ -470,9 +467,6 @@
     }).join('');
 
     return `<div class="card">
-      <h3>Участники дела</h3>
-      <p class="m">Сторону сделки достаточно завести один раз — дальше она выбирается из списка,
-        а реквизиты подставляются сами.</p>
       ${rows || '<p class="hint">Кроме должника сторон пока нет.</p>'}
       <div style="margin-top:12px"><button class="btn" data-act="new-party">Добавить сторону</button></div>
     </div>`;
@@ -633,24 +627,24 @@
 
     const tail = `
       <div class="tabs">
-        ${tab('deal', 'ground', 'Основание', (d.grounds || []).length || null)}
         ${tab('deal', 'main', 'Сделка')}
-        ${tab('deal', 'object', 'Объект')}
-        ${tab('deal', 'circ', 'Обстоятельства')}
-        ${tab('deal', 'fee', 'Пошлина')}
         ${tab('deal', 'docs', 'Документы', docs)}
       </div>`;
 
-    const body = tabs.deal === 'ground' ? dealGroundTab(d)
-      : tabs.deal === 'object' ? dealObjectTab(d)
-        : tabs.deal === 'circ' ? dealCircTab(d)
-          : tabs.deal === 'fee' ? dealFeeTab(d)
-            : tabs.deal === 'docs' ? dealDocsTab(d)
-              : dealMainTab(d) + dealPartiesTab(c, d);
+    /*
+     * Шесть вкладок стали двумя. Основание, объект, обстоятельства и стороны
+     * были не экранами, а разделами одной анкеты, которую и заполняют сверху
+     * вниз за один заход; пошлина считается по документу, поэтому стоит там,
+     * где документы. Прыгать между шестью вкладками, чтобы описать одну
+     * сделку, — это и есть «слишком много шагов».
+     */
+    const body = tabs.deal === 'docs'
+      ? dealFeeTab(d) + dealDocsTab(d) + dealPapers(c, d)
+      : dealGroundTab(d) + (started
+        ? dealMainTab(d) + dealPartiesTab(c, d) + dealObjectTab(d) + dealCircTab(d)
+        : '');
 
-    // Список документов нужен, когда сделка уже описана; на шаге выбора
-    // основания он только отвлекает.
-    return head + tail + body + (tabs.deal === 'ground' ? '' : dealPapers(c, d));
+    return head + tail + body;
   }
 
   /**
@@ -710,12 +704,9 @@
       <p class="m">Можно выбрать несколько. Выбранные основания включат нужные разделы
         заявления и оставят в анкете только те вопросы, которые к ним относятся.</p>
       <div class="grounds">${cards}</div>
-      ${chosen.size ? `<div class="note good" style="margin:16px 0 0">
-          Выбрано ${chosen.size} ${D.plural(chosen.size, 'основание', 'основания', 'оснований')}.
-          Дальше — вкладка «Сделка»: даты, сумма и контрагент.
-        </div>`
+      ${chosen.size ? ''
         : '<div class="note calm" style="margin:16px 0 0">Пока основание не выбрано, ' +
-          'в заявление войдут только общие разделы.</div>'}
+          'ниже нечего спрашивать: набор вопросов зависит от него.</div>'}
     </div>`;
   }
 
@@ -925,8 +916,7 @@
       <p class="m">Свободный текст — войдёт в раздел «Обстоятельства заключения сделки».</p>
       <div class="form">${field({ label: '', bind: 'deal.circumstances', type: 'textarea', wide: true, rows: 4 })}</div>
     </div>
-    ${sections.length ? '' : '<div class="note calm">Уточняющих вопросов нет: основание оспаривания ' +
-      'ещё не выбрано. Вернитесь на вкладку «Основание».</div>'}`;
+    ${sections.length ? '' : ''}`;
   }
 
   /** Расчёт пошлины показывается по шагам: сумму под заявлением подписывает человек. */
@@ -1044,7 +1034,15 @@
           <div class="blocks">
             <div class="bh"><h3>Разделы</h3>
               <p class="m">включено ${on} из ${blocks.length}</p></div>
-            ${blocks.map(blockRow).join('')}
+            ${blocks.filter((b) => !offBasis(b)).map(blockRow).join('')}
+            ${(() => {
+    // Разделы, не относящиеся к выбранным основаниям, раньше стояли в общем
+    // списке, каждый со своей пометкой. Шесть серых строк с одинаковой
+    // надписью — ровно тот мусор, который мешает найти нужное.
+    const rest = blocks.filter(offBasis);
+    return rest.length ? `<details class="more"><summary>Ещё ${rest.length} ${D.plural(rest.length, 'раздел', 'раздела', 'разделов')} не по вашему основанию</summary>
+              ${rest.map(blockRow).join('')}</details>` : '';
+  })()}
           </div>
           <div class="railacts">
             <button class="linkbtn" data-act="reset-blocks">Собрать заново по основаниям</button>
@@ -1063,14 +1061,14 @@
       </div>`;
   }
 
+  /** Раздел не относится к выбранным основаниям и выключен. */
+  const offBasis = (b) => !!b.condition && !b.available && !b.enabled;
+
   function blockRow(b) {
     const open = openBlocks.has(b.id);
-    // Пометок ровно две: текст правился руками и раздел не относится к выбранным
-    // основаниям. Остальное («обязательный», «свой») человеку ничего не решает.
-    const flags = [
-      b.overridden ? '<span class="flag edit">изменён</span>' : '',
-      b.condition && !b.available ? '<span class="flag cond">не по вашему основанию</span>' : ''
-    ].filter(Boolean).join('');
+    // Пометка осталась одна: текст правился руками. О том, что раздел не по
+    // основанию, говорит сама свёртка, в которой он лежит.
+    const flags = b.overridden ? '<span class="flag edit">изменён</span>' : '';
 
     return `<div class="blk${b.enabled ? '' : ' off'}" data-block="${b.id}" draggable="${open ? 'false' : 'true'}">
       <div class="row">
