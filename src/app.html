@@ -5,382 +5,359 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Оспаривание сделок — конструктор заявлений</title>
 <style>
+/* @@FONT@@ */
 /*
- * Оформление: бумага.
+ * Оформление — то же, что у анализатора отчётов ОКБ: алебастровый фон,
+ * тёплый грейж поверхностей, терракотовый акцент, градиент на главной
+ * плитке экрана, таблетки вкладок и кнопок, скругление 16 и мягкая тень.
+ * Два инструмента одного набора должны читаться как один продукт.
  *
- * Приложение делает документы, и выглядит оно как стол с документом.
- * Белый фон, чёрный текст, линии в один пиксель. Ни карточек, ни теней,
- * ни скруглений, ни градиентов: украшать инструмент, которым работают
- * каждый день, — значит каждый день мешать.
+ * Каркас при этом остался тот, к которому пришли: четыре вкладки вместо
+ * десяти, свёрнутые разделы, реестр вместо витрины на главной, лист
+ * предпросмотра в пропорциях A4. Стиль вернулся, лишние экраны — нет.
  *
- * Цвет ровно один — тёмно-красный, и только там, где чего-то не хватает:
- * незаполненная переменная, обязательное поле, ошибка проверки. Если он
- * появился на экране, его видно сразу, потому что больше цвета нигде нет.
- *
- * Интерфейс набран системным гротеском мелким кеглем, документ — Times,
- * как его увидит суд. Лист везде имеет пропорции A4 и поля документа,
- * поэтому строка получает нормальную длину и текст не читается массой.
+ * Палитра: алебастровый #F1ECE6 и тёплый грейж #DDD5CD — поверхности,
+ * угольный #2B2D31 — текст, терракота #8D321F — акцент, олива #3A4027 —
+ * «готово», бежевый #C29B72 — заливка шкал.
  */
 :root{
-  /* Тёплая бумага под содержимым, почти белые поверхности, тёмная полоса
-     сверху. Контраст даёт присутствие, которого не хватало плоскому виду,
-     а приметы генерации — градиент, мягкая тень, таблетка, крупная цифра
-     в рамке — не возвращаются: дело было в них, а не в цвете. */
-  --pn:#FFFDFA;--bg:#F2EFE9;--tint:#FAF7F1;
-  --bar:#1F2226;--bar-2:#2C3036;
-  --ink:#22242a;--ink-2:#565b63;--ink-3:#82868e;--ink-4:#adb1b8;
-  --line:#E4DDD2;--line-2:#CFC5B6;--rule:#22242a;
-  --acc:#8D321F;--acc-2:#A94229;--acc-wash:#F7EBE6;
-  --sheet-w:794px;--r:5px;
+  --bg:#F1ECE6;--surface:#FBF9F6;--surface-2:#E7E0D8;--greige:#DDD5CD;
+  --line:#DDD5CD;--line-2:#C6BCB1;
+  --ink:#2B2D31;--ink-2:#5F6165;--ink-3:#8A867F;
+  --acc:#8D321F;--acc-2:#A94229;--acc-wash:#F6E7E2;--acc-line:#E2C6BC;
+  --rose:#7D4047;--olive:#3A4027;--olive-wash:#E9EBDF;--beige:#C29B72;
+  --hero:linear-gradient(135deg,#8D321F 0%,#7D4047 100%);
+  --r:16px;--r-sm:10px;
+  --shadow:0 1px 2px rgba(43,45,49,.05),0 10px 24px -18px rgba(43,45,49,.4);
+  --sheet-w:794px;
 }
 *{box-sizing:border-box}
 html,body{margin:0}
 [hidden]{display:none!important}
 body{background:var(--bg);color:var(--ink);
-  font:13.5px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
-  font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
-/* Заголовки набраны антиквой: это тот характер, которого не было у голого
-   системного гротеска, и он ничего не весит — гарнитура уже есть в системе. */
-h1,h2,h3,h4{margin:0;font-weight:600;
-  font-family:Charter,"Iowan Old Style",Georgia,"Times New Roman",serif;letter-spacing:-.005em}
+  font-family:Onest,"Segoe UI",system-ui,sans-serif;font-size:15px;line-height:1.45;
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;-webkit-font-smoothing:antialiased}
+h1,h2,h3,h4{margin:0;font-weight:600;letter-spacing:-.02em}
 button,input,select,textarea{font:inherit}
-:focus-visible{outline:2px solid var(--acc);outline-offset:1px}
-.page{max-width:1120px;margin:0 auto;padding:0 20px}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px;border-radius:4px}
+.page{max-width:1180px;margin:0 auto;padding:0 22px}
+@keyframes pop{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 
-/* Лестница размеров: заголовок экрана, заголовок раздела, текст, подпись.
-   Без неё глазу не за что зацепиться и экран читается серой простынёй. */
-.lbl{font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);
-  margin:0 0 8px}
-.m{font-size:12.5px;color:var(--ink-3);line-height:1.5;margin:0}
-.hint{font-size:12px;color:var(--ink-3);line-height:1.5;margin:5px 0 0}
+.lbl{font-size:12.5px;font-weight:600;color:var(--ink-3);margin:0 0 8px}
+.m{font-size:12.5px;color:var(--ink-3);line-height:1.45;margin:0}
+.hint{font-size:12px;color:var(--ink-3);line-height:1.5;margin:6px 0 0}
 
-/* ---------- строка состояния ---------- */
-/* Тёмная полоса вместо белой: она отделяет приложение от содержимого
-   и даёт экрану опору. Логотипа-квадратика с градиентом и слогана нет. */
-.top{background:var(--bar);border-bottom:1px solid var(--bar)}
-.top .in{display:flex;align-items:center;gap:0;padding:10px 0;flex-wrap:wrap;font-size:12.5px}
-.path{color:#9aa0a8;min-width:0}
-.path b{color:#fff;font-weight:600}
-.path a{color:#c8ccd2;text-decoration:none}
-.path a:hover{color:#fff;text-decoration:underline}
-.path i{font-style:normal;color:#5d636b;margin:0 7px}
+/* ---------- шапка ---------- */
+.top{background:var(--surface);border-bottom:1px solid var(--line)}
+.top .in{display:flex;align-items:center;gap:0;padding:12px 0;flex-wrap:wrap;font-size:12.5px}
+.path{color:var(--ink-3);min-width:0}
+.path b{color:var(--ink);font-weight:600}
+.path a{color:var(--ink-2);text-decoration:none;border-bottom:1px solid transparent}
+.path a:hover{color:var(--acc);border-color:var(--acc-line)}
+.path i{font-style:normal;color:var(--line-2);margin:0 8px}
 .act{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.top .btn{background:transparent;border-color:#464c54;color:#d7dbe0}
-.top .btn:hover{background:var(--bar-2);border-color:#6d747d;color:#fff}
 
-/* Кнопка снова кнопка. Три вида, и их видно сразу, а не наведением:
-   обычная, главная и опасная. Раньше «Удалить дело» выглядело ровно как
-   «Обновить из печатной формы» — так и до беды недалеко. */
 .btn{display:inline-flex;align-items:center;justify-content:center;
-  border:1px solid var(--line-2);background:var(--pn);color:var(--ink);border-radius:var(--r);
-  padding:6px 13px;font-size:13px;line-height:1.3;cursor:pointer;white-space:nowrap;
-  transition:background .12s,border-color .12s,color .12s}
-.btn:hover{background:var(--tint);border-color:var(--ink-3)}
-.btn:disabled{color:var(--ink-4);background:var(--bg);border-color:var(--line);cursor:not-allowed}
-.btn.pri{background:var(--acc);border-color:var(--acc);color:#FFF8F4;font-weight:600}
-.btn.pri:hover{background:var(--acc-2);border-color:var(--acc-2);color:#fff}
-.btn.danger{color:var(--acc);border-color:var(--line-2)}
-.btn.danger:hover{background:var(--acc-wash);border-color:var(--acc)}
-.btn-sm{padding:4px 10px;font-size:12.5px}
+  border:1px solid var(--line-2);background:var(--surface);color:var(--ink-2);border-radius:999px;
+  padding:8px 16px;font-size:13.5px;line-height:1.2;cursor:pointer;white-space:nowrap;
+  transition:border-color .15s,color .15s,background .15s}
+.btn:hover{border-color:var(--ink-3);color:var(--ink)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.pri{background:var(--acc);border-color:var(--acc);color:#FBF9F6;font-weight:600}
+.btn.pri:hover{background:var(--acc-2);border-color:var(--acc-2);color:#FBF9F6}
+.btn.danger:hover{border-color:var(--acc);color:var(--acc)}
+.btn-sm{padding:5px 12px;font-size:12.5px}
 .linkbtn{border:0;background:none;padding:0;font:inherit;font-size:12.5px;color:var(--acc);
-  cursor:pointer;text-decoration:underline;text-underline-offset:2px}
-.linkbtn:hover{color:var(--acc-2)}
+  cursor:pointer;border-bottom:1px solid var(--acc-line)}
+.linkbtn:hover{color:var(--acc-2);border-color:var(--acc-2)}
 
 /* ---------- реестр дел ---------- */
-.reg{padding:24px 0 48px}
+.reg{padding:18px 0 44px}
 .reg-top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}
-.reg-top h1{font-size:25px;font-weight:600}
-.reg-top .m{margin-top:2px}
+.reg-top h1{font-size:29px;font-weight:700;letter-spacing:-.03em;line-height:1.15;color:#FBF7F2}
+.reg-top .m{margin-top:5px;color:#EBD5CC;font-size:13.5px}
 .reg-act{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.find{width:100%;max-width:330px;margin:16px 0 10px;padding:7px 10px;font:inherit;font-size:13px;
-  color:var(--ink);background:var(--pn);border:1px solid var(--line-2);border-radius:var(--r);outline:none}
-.find:focus{border-color:var(--acc);box-shadow:0 0 0 2px rgba(141,50,31,.16)}
-.find::placeholder{color:var(--ink-4)}
-.reg-body{margin-top:2px;border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.find{width:100%;max-width:340px;margin:16px 0 12px;padding:9px 14px;font:inherit;font-size:13.5px;
+  color:var(--ink);background:var(--surface);border:1px solid var(--line-2);border-radius:999px;outline:none}
+.find:focus{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-wash)}
+.find::placeholder{color:var(--ink-3)}
+.reg-body{margin-top:2px;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
 .reg-table .no{font-weight:600;white-space:nowrap;color:var(--acc)}
-.sortb{border:0;background:none;padding:0;font:inherit;font-size:11px;font-weight:600;
-  letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);cursor:pointer;white-space:nowrap}
+.sortb{border:0;background:none;padding:0;font:inherit;font-size:11.5px;font-weight:500;
+  color:var(--ink-3);cursor:pointer;white-space:nowrap}
 .sortb:hover{color:var(--ink)}
-.sortb.on{color:var(--ink)}
+.sortb.on{color:var(--ink);font-weight:600}
 
 /* приглашение начать — видно ровно один раз, до первого дела */
-.drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
-  width:100%;margin-top:20px;padding:52px 30px;text-align:center;font:inherit;color:inherit;
-  border:1px dashed var(--line-2);background:none;cursor:pointer}
-.drop:hover{border-color:var(--ink);}
-.drop b{font-size:15px;font-weight:600}
-.drop span{color:var(--ink-3);font-size:12.5px}
+.drop{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;
+  width:100%;margin-top:18px;padding:56px 30px;text-align:center;font:inherit;color:inherit;
+  border:2px dashed var(--line-2);background:var(--surface);border-radius:var(--r);cursor:pointer;
+  transition:border-color .15s,background .15s}
+.drop:hover{border-color:var(--acc);background:var(--acc-wash)}
+.drop b{font-size:20px;font-weight:700;letter-spacing:-.02em}
+.drop span{color:var(--ink-3);font-size:13.5px}
 .drop .ic{display:none}
 
-/* ---------- заголовок экрана ---------- */
-.scr{padding:22px 0 0}
-.scr-top{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;flex-wrap:wrap}
-.scr-top h1{font-size:25px;font-weight:600;line-height:1.2}
-.scr-top .m{margin-top:4px;max-width:80ch}
+/* ---------- заголовок экрана: та самая плитка с градиентом ---------- */
+/* Плитка одна и несёт то же, что несла сводка: кто, по какому делу и что
+   с ним можно сделать. Второй раз эти цифры нигде не повторяются. */
+.scr{padding:18px 0 0}
+.hero{background:var(--hero);border-radius:var(--r);color:#F6EFE9;padding:24px 26px;
+  box-shadow:var(--shadow)}
+.scr-top{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap}
+.scr-top h1{font-size:29px;font-weight:700;letter-spacing:-.03em;line-height:1.15;color:#FBF7F2}
+.scr-top h1::first-letter{text-transform:uppercase}
+.scr-top .m{margin-top:7px;color:#EBD5CC;font-size:13.5px;max-width:72ch}
 .scr-act{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.hero .btn{background:rgba(251,249,246,.14);border-color:rgba(246,239,233,.4);color:#FBF7F2}
+.hero .btn:hover{background:rgba(251,249,246,.24);border-color:#FBF7F2;color:#fff}
+.hero .btn.pri{background:#FBF7F2;border-color:#FBF7F2;color:var(--acc)}
+.hero .btn.pri:hover{background:#fff;color:var(--acc-2)}
+.hero .linkbtn{color:#F6EFE9;border-color:rgba(246,239,233,.45)}
+.hero .linkbtn:hover{color:#fff;border-color:#fff}
 
-/* Сводка: короткие пары, а не сплошная строка. Читается взглядом сверху вниз,
-   а не вычитывается слева направо. */
-.facts{display:flex;flex-wrap:wrap;gap:0 30px;margin:16px 0 0;padding:13px 16px;
-  background:var(--pn);border:1px solid var(--line);border-radius:var(--r)}
+.facts{display:flex;flex-wrap:wrap;gap:0 30px;margin:20px 0 0;padding:17px 0 0;
+  border-top:1px solid rgba(246,239,233,.28)}
 .facts>div{padding:2px 0}
-.facts>div.wide{flex-basis:100%;margin-top:4px;padding-top:7px;border-top:1px solid var(--line)}
-.facts dt{font-size:11.5px;color:var(--ink-3);margin-bottom:1px}
-.facts dd{margin:0;font-size:16px;color:var(--ink);font-weight:600;
-  font-family:Charter,"Iowan Old Style",Georgia,serif}
-.facts>div.wide dt,.facts>div.wide dd{display:inline;font-size:13.5px;font-family:inherit}
+.facts>div.wide{flex-basis:100%;margin-top:9px}
+.facts dt{font-size:12.5px;color:#EBD5CC;margin-bottom:1px;font-weight:500}
+.facts dd{margin:0;font-size:21px;font-weight:700;letter-spacing:-.02em;color:#FBF7F2}
+.facts>div.wide dt,.facts>div.wide dd{display:inline;font-size:13.5px;font-weight:500}
+.facts>div.wide dd{font-weight:600}
 .facts>div.wide dt::after{content:":  ";white-space:pre}
-.facts dd .linkbtn{font-weight:400;margin-left:8px}
-.bad{color:var(--acc)}
+.facts dd .linkbtn{margin-left:9px;font-weight:500}
+.bad{color:#FFD9CE}
 
-/* строка документа в конструкторе */
-.docbar{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;
-  padding:16px 0 0;border-bottom:1px solid var(--line-2)}
-.docbar .which{display:flex;gap:20px;flex-wrap:wrap}
-.docbar .tab{padding-bottom:9px;margin-bottom:-1px}
-.docbar .scr-act{padding-bottom:9px}
-.railacts{display:flex;flex-wrap:wrap;gap:8px}
+/* ---------- вкладки-таблетки ---------- */
+.tabs{display:flex;gap:7px;padding:0;margin:18px 0 0;flex-wrap:wrap;border-bottom:0}
+.tab{border:1px solid var(--line-2);background:var(--surface);color:var(--ink-2);border-radius:999px;
+  padding:7px 16px;font:inherit;font-size:13.5px;cursor:pointer;white-space:nowrap;margin:0}
+.tab:hover{border-color:var(--ink-3);color:var(--ink)}
+.tab.on{background:var(--acc);border-color:var(--acc);color:#FBF9F6;font-weight:600}
+.tab .n{opacity:.7;font-weight:400;margin-left:5px;font-size:inherit;color:inherit}
 
-/* ---------- вкладки ---------- */
-.tabs{display:flex;gap:24px;padding:0;margin:20px 0 0;border-bottom:1px solid var(--line-2);flex-wrap:wrap}
-.tab{border:0;background:none;padding:0 0 9px;margin-bottom:-1px;font:inherit;font-size:14.5px;
-  color:var(--ink-3);cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent}
-.tab:hover{color:var(--ink)}
-.tab.on{color:var(--acc);font-weight:600;border-color:var(--acc)}
-.tab .n{color:var(--ink-4);font-weight:400;margin-left:5px;font-size:12.5px}
-
-/* ---------- разделы страницы ---------- */
-/* Раздел снова имеет края. Без них вкладка реквизитов превращалась
-   в одну неразличимую колонку из двадцати полей. */
-.card{background:var(--pn);border:1px solid var(--line);border-radius:var(--r);
-  padding:17px 19px;margin:14px 0 0}
-.card>h3{font-size:16px;font-weight:600;margin-bottom:4px}
+/* ---------- разделы ---------- */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  padding:18px 20px;margin:12px 0 0;box-shadow:var(--shadow)}
+.card>h3{font-size:16px;font-weight:600;margin-bottom:3px}
 .card>.m{margin-bottom:14px;max-width:80ch}
-.note{padding:11px 14px;font-size:12.5px;line-height:1.55;margin:0 0 12px;border-radius:var(--r);
-  border:1px solid var(--line);border-left:3px solid var(--line-2);background:var(--tint);color:var(--ink-2)}
+.note{border-radius:var(--r-sm);padding:13px 16px;font-size:13px;line-height:1.55;margin:0 0 12px;
+  background:var(--acc-wash);color:var(--ink-2);border:1px solid var(--acc-line)}
 .note b{color:var(--ink);font-weight:600}
-.note.calm{border-left-color:var(--line-2)}
-.note.good{border-left-color:var(--ink-3)}
-.note.warn{border-left-color:var(--acc);background:var(--acc-wash)}
-.empty{background:var(--pn);border:1px dashed var(--line-2);border-radius:var(--r);padding:38px 24px;
-  text-align:center;color:var(--ink-3);margin-top:14px}
-.empty b{display:block;color:var(--ink);font-size:17px;margin-bottom:5px;font-weight:600;
-  font-family:Charter,"Iowan Old Style",Georgia,serif}
+.note.calm{background:var(--surface-2);border-color:var(--line)}
+.note.good{background:var(--olive-wash);border-color:#CFD3BF;color:var(--olive)}
+.empty{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:34px 24px;
+  text-align:center;color:var(--ink-3);margin-top:12px;box-shadow:var(--shadow)}
+.empty b{display:block;color:var(--ink);font-size:16px;margin-bottom:5px;font-weight:600}
 
-.meter{height:3px;background:var(--line);min-width:36px;margin:7px 0;border-radius:2px;overflow:hidden}
-.meter i{display:block;height:3px;background:var(--acc)}
-.meter i.done{background:var(--ink)}
-.chipm{font-size:12px;color:var(--ink-3);display:inline-flex;align-items:center;gap:6px}
-.chipm .dot{width:6px;height:6px;border-radius:50%;background:var(--ink-4);flex:none}
+.meter{height:6px;background:var(--surface-2);border-radius:999px;overflow:hidden;min-width:36px;margin:7px 0}
+.meter i{display:block;height:100%;background:var(--beige);border-radius:999px}
+.meter i.done{background:var(--olive)}
+.chipm{background:var(--surface-2);border-radius:999px;padding:3px 11px;font-size:11.5px;color:var(--ink-2);
+  font-weight:500;display:inline-flex;align-items:center;gap:6px}
+.chipm .dot{width:7px;height:7px;border-radius:50%;background:var(--olive);flex:none}
 .chipm.w{color:var(--acc)}
 .chipm.w .dot{background:var(--acc)}
 
-/* Свёрнутый раздел. То, что нужно не в каждом деле — стороны, счета,
-   реквизиты управляющего, — лежит закрытым и не занимает ни вкладки,
-   ни экрана, но и не спрятано за другой страницей. */
-.fold{border:1px solid var(--line);border-radius:var(--r);background:var(--pn);margin:14px 0 0}
-.fold>summary{list-style:none;cursor:pointer;padding:13px 19px;font-size:16px;font-weight:600;
-  font-family:Charter,"Iowan Old Style",Georgia,serif;
-  display:flex;align-items:center;gap:10px;user-select:none}
+/* свёрнутый раздел — то, что нужно не в каждом деле */
+.fold{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  margin:12px 0 0;box-shadow:var(--shadow);overflow:hidden}
+.fold>summary{list-style:none;cursor:pointer;padding:16px 20px;font-size:16px;font-weight:600;
+  letter-spacing:-.02em;display:flex;align-items:center;gap:11px;user-select:none}
 .fold>summary::-webkit-details-marker{display:none}
-.fold>summary::before{content:"";width:7px;height:7px;flex:none;border-right:1.5px solid var(--ink-3);
-  border-bottom:1.5px solid var(--ink-3);transform:rotate(-45deg);margin-right:2px;transition:transform .15s}
+.fold>summary::before{content:"";width:7px;height:7px;flex:none;border-right:2px solid var(--acc);
+  border-bottom:2px solid var(--acc);transform:rotate(-45deg);transition:transform .15s}
 .fold[open]>summary::before{transform:rotate(45deg)}
-.fold>summary:hover{background:var(--tint)}
-.fold>summary span{margin-left:auto;font-size:12px;font-weight:400;color:var(--ink-3)}
+.fold>summary:hover{background:var(--surface-2)}
+.fold>summary span{margin-left:auto;font-size:12.5px;font-weight:400;color:var(--ink-3)}
 .fold>summary+*{border-top:1px solid var(--line)}
-.fold .card{border:0;border-radius:0;margin:0;padding:17px 19px}
-.fold .empty{border:0;margin:0}
+.fold .card{border:0;border-radius:0;margin:0;box-shadow:none;padding:18px 20px}
+.fold .empty{border:0;border-radius:0;margin:0;box-shadow:none}
 
 /* ---------- формы ---------- */
-.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:13px 16px}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px 18px}
 .f{min-width:0}
 .f.wide{grid-column:1/-1}
-label.lb{display:block;font-size:12px;color:var(--ink-2);margin-bottom:4px}
+label.lb{display:block;font-size:12px;color:var(--ink-3);margin-bottom:4px}
 label.lb .req{color:var(--acc)}
-/* Поле снова видно как поле: рамка, белая заливка, заметный фокус. */
 input[type=text],input[type=number],input[type=date],input[type=search],select,textarea{width:100%;
-  border:1px solid var(--line-2);background:var(--pn);border-radius:var(--r);padding:7px 9px;
-  font-size:13.5px;color:var(--ink);transition:border-color .12s,box-shadow .12s}
-textarea{resize:vertical;min-height:74px;line-height:1.5}
-input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc);
-  box-shadow:0 0 0 2px rgba(141,50,31,.16)}
-input[readonly]{background:var(--bg);color:var(--ink-3)}
+  border:1px solid var(--line-2);background:var(--surface);border-radius:9px;padding:9px 11px;
+  font-size:13.5px;color:var(--ink);transition:border-color .15s,box-shadow .15s}
+textarea{resize:vertical;min-height:76px;line-height:1.5}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-wash)}
+input[readonly]{background:var(--surface-2);color:var(--ink-2)}
 input.bad,textarea.bad,select.bad{border-color:var(--acc)}
-input.bad:focus,textarea.bad:focus{box-shadow:0 0 0 2px rgba(138,21,0,.14)}
-.chk{display:flex;gap:9px;align-items:flex-start;font-size:13px;color:var(--ink-2);padding:5px 0;cursor:pointer}
+.chk{display:flex;gap:9px;align-items:flex-start;font-size:13.5px;color:var(--ink-2);padding:6px 0;cursor:pointer}
 .chk:hover{color:var(--ink)}
-.chk input{width:15px;height:15px;accent-color:var(--acc);margin:2px 0 0;flex:none}
-.radios{display:inline-flex;flex-wrap:wrap;border:1px solid var(--line-2);border-radius:var(--r);overflow:hidden}
-.radio{font-size:13px;color:var(--ink-2);cursor:pointer;display:inline-flex;align-items:center;
-  padding:6px 13px;background:var(--pn);border-right:1px solid var(--line-2)}
-.radio:last-child{border-right:0}
-.radio:hover{background:var(--tint);color:var(--ink)}
-.radio.on{background:var(--acc);color:#FFF8F4;font-weight:600}
+.chk input{width:16px;height:16px;accent-color:var(--acc);margin:2px 0 0;flex:none}
+.radios{display:flex;gap:7px;flex-wrap:wrap;border:0;border-radius:0;overflow:visible}
+.radio{border:1px solid var(--line-2);background:var(--surface);border-radius:999px;padding:7px 15px;
+  font-size:13px;color:var(--ink-2);cursor:pointer;display:inline-flex;align-items:center}
+.radio:hover{border-color:var(--ink-3);color:var(--ink)}
+.radio.on{background:var(--acc);border-color:var(--acc);color:#FBF9F6;font-weight:600}
 .radio input{display:none}
 
 /* ---------- выбор основания оспаривания ---------- */
-.grounds{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:8px;margin-top:12px}
-.ground{display:block;border:1px solid var(--line-2);border-radius:var(--r);padding:12px 14px 12px 36px;
-  cursor:pointer;background:var(--pn);position:relative;transition:border-color .12s,background .12s}
-.ground:hover{border-color:var(--acc);background:var(--tint)}
-.ground input{position:absolute;opacity:0;pointer-events:none}
-.ground::before{content:"";position:absolute;left:12px;top:13px;width:14px;height:14px;
-  border:1px solid var(--line-2);border-radius:2px;background:var(--pn)}
+.grounds{display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:10px;margin-top:14px}
+.ground{display:block;border:1px solid var(--line-2);border-radius:var(--r-sm);padding:14px 16px;
+  cursor:pointer;background:var(--surface);transition:border-color .15s,background .15s;position:relative}
+.ground:hover{border-color:var(--ink-3)}
 .ground.on{border-color:var(--acc);background:var(--acc-wash)}
-.ground.on::before{background:var(--acc);border-color:var(--acc)}
-.ground.on::after{content:"";position:absolute;left:16px;top:17px;width:6px;height:3px;
-  border-left:1.5px solid #fff;border-bottom:1.5px solid #fff;transform:rotate(-45deg)}
-.ground b{display:block;font-size:14px;font-weight:600}
-.ground .law{display:block;font-size:12px;color:var(--ink-3);margin:1px 0 3px}
+.ground input{position:absolute;opacity:0;pointer-events:none}
+.ground::before{content:none}
+.ground.on::after{content:none}
+.ground b{display:block;font-size:14.5px;font-weight:600;letter-spacing:-.015em}
+.ground .law{display:block;font-size:12px;color:var(--acc);font-weight:600;margin:2px 0 6px}
 .ground .m{display:block}
-.ground:has(input:focus-visible){outline:2px solid var(--ink);outline-offset:1px}
-.step{}
+.ground:has(input:focus-visible){outline:2px solid var(--acc);outline-offset:2px}
+.step{animation:pop .28s both}
 
 /* ---------- таблицы ---------- */
-table{width:100%;border-collapse:collapse;font-size:13px;background:var(--pn)}
-th{text-align:left;font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
-  color:var(--ink-2);padding:10px 12px;white-space:nowrap;border-bottom:1px solid var(--line-2);
-  background:var(--tint)}
+table{width:100%;border-collapse:collapse;font-size:12.5px;background:none}
+th{text-align:left;font-size:11.5px;font-weight:500;color:var(--ink-3);padding:14px 16px 10px;
+  white-space:nowrap;border-bottom:1px solid var(--line);background:none}
 th.r{text-align:right}
-td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+td{padding:11px 16px;border-bottom:1px solid var(--line);vertical-align:top}
+tbody tr:last-child td{border-bottom:0}
 td.r{text-align:right;white-space:nowrap}
 td.sub{color:var(--ink-3)}
-tbody tr:hover td{background:var(--tint)}
+tbody tr:hover td{background:var(--surface-2)}
 tr.click{cursor:pointer}
-.pill{display:inline-block;font-size:12px;padding:1px 8px;border:1px solid var(--line-2);border-radius:10px}
-.pill.draft{color:var(--ink-3)}
-.pill.ready{color:var(--acc);border-color:var(--acc);background:var(--acc-wash);font-weight:600}
-.rowact{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.pill{display:inline-block;border-radius:999px;padding:2px 10px;font-size:11.5px;font-weight:600}
+.pill.draft{background:var(--surface-2);color:var(--ink-2)}
+.pill.ready{background:var(--olive-wash);color:var(--olive)}
+.rowact{display:flex;gap:6px;justify-content:flex-end;flex-wrap:wrap}
 
-/* ---------- строки списков: стороны, банки, документы ---------- */
-.party{display:flex;align-items:center;gap:12px;padding:11px 14px;border:1px solid var(--line);
-  border-radius:var(--r);margin:0 0 7px;background:var(--tint)}
-.party .nm{font-weight:600;font-size:13.5px}
+/* ---------- строки списков ---------- */
+.party{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line);
+  border-radius:var(--r-sm);margin:0 0 8px;background:var(--surface)}
+.party .nm{font-weight:600;font-size:14px}
 .party .rq{font-size:12px;color:var(--ink-3)}
-.party .tag{font-size:11.5px;color:var(--ink-3);border:1px solid var(--line-2);border-radius:10px;
-  padding:1px 8px;flex:none}
-.party .sp{margin-left:auto;display:flex;gap:8px;align-items:center}
+.party .tag{background:var(--acc-wash);color:var(--acc);border-radius:999px;padding:2px 9px;
+  font-size:11px;font-weight:600;flex:none;border:0}
+.party .sp{margin-left:auto;display:flex;gap:6px;align-items:center}
 
 /* ---------- конструктор ---------- */
-.builder{display:grid;grid-template-columns:258px minmax(0,1fr);gap:0;align-items:start;
-  padding-bottom:48px}
-.bcol-form{position:sticky;top:0;max-height:100vh;overflow:auto;padding:18px 18px 26px;
-  background:var(--pn);border:1px solid var(--line);border-radius:var(--r);
-  display:flex;flex-direction:column;gap:16px;margin-top:16px}
-.bcol-paper{padding:16px 0 0 22px;display:flex;flex-direction:column;align-items:center;gap:18px}
+.builder{display:grid;grid-template-columns:296px minmax(0,1fr);gap:14px;align-items:start;
+  padding-bottom:40px}
+.bcol-form{position:sticky;top:14px;max-height:calc(100vh - 28px);overflow:auto;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow);padding:18px 18px 20px;margin-top:12px;
+  display:flex;flex-direction:column;gap:16px}
+.bcol-paper{padding:12px 0 0;display:flex;flex-direction:column;align-items:center;gap:14px}
 .blocks{background:none;border:0;border-radius:0;box-shadow:none;overflow:visible}
-.blocks .bh{display:block;padding:0 0 7px;border-bottom:0}
-.blocks .bh h3{font-size:15px;font-weight:600}
+.blocks .bh{display:block;padding:0 0 8px;border-bottom:0}
+.blocks .bh h3{font-size:16px;font-weight:600}
 .blocks .bh .m{margin:2px 0 0}
 .blk{border-bottom:0}
 .blk.drag{opacity:.35}
-.blk.over{box-shadow:inset 0 1px 0 var(--ink)}
-.blk .row{display:flex;align-items:flex-start;gap:7px;padding:3px 0;line-height:1.3;flex-wrap:wrap}
-.blk .row:hover{background:none}
-.blk .row:hover .nm b{text-decoration:underline;text-underline-offset:2px}
-.blk .grip{cursor:grab;color:var(--ink-4);flex:none;width:9px;text-align:center;line-height:1.3;
-  font-size:11px;user-select:none}
+.blk.over{box-shadow:inset 0 2px 0 var(--acc)}
+.blk .row{display:flex;align-items:flex-start;gap:8px;padding:4px 0;line-height:1.3;flex-wrap:wrap}
+.blk .row:hover .nm b{color:var(--acc)}
+.blk .grip{cursor:grab;color:var(--ink-3);flex:none;width:10px;text-align:center;line-height:1.3;
+  font-size:12px;user-select:none}
 .blk .grip:active{cursor:grabbing}
-.blk input[type=checkbox]{width:13px;height:13px;accent-color:var(--acc);flex:none;margin:2px 0 0}
-.blk .nm{flex:1;min-width:0;font-size:12.5px;cursor:pointer}
+.blk input[type=checkbox]{width:15px;height:15px;accent-color:var(--acc);flex:none;margin:1px 0 0}
+.blk .nm{flex:1;min-width:0;font-size:13px;cursor:pointer}
 .blk .nm b{display:block;font-weight:500}
 .blk .nm span{display:none}
-.blk.off .nm b{color:var(--ink-4)}
-/* Пометка не влезает рядом с названием в узкую колонку — уводим её
-   на свою строку под названием, иначе она наезжает на текст. */
-.blk .flag{font-size:10.5px;color:var(--ink-3);flex-basis:100%;margin-left:28px;
-  white-space:normal;line-height:1.3}
-.blk .flag.cond{color:var(--acc)}
-.blk .flag.edit{color:var(--ink-2)}
-.blk .body{padding:6px 0 12px 16px;background:none;border-top:0}
+.blk.off .nm b{color:var(--ink-3)}
+.blk .flag{font-size:10.5px;border-radius:999px;padding:1px 8px;background:var(--olive-wash);
+  color:var(--olive);flex-basis:100%;margin-left:33px;align-self:flex-start;width:max-content}
+.blk .body{padding:6px 0 12px 33px;background:none;border-top:0}
 .blk .body textarea{min-height:150px;font-size:12.5px;line-height:1.55}
-.blk .body .tools{display:flex;gap:14px;align-items:baseline;flex-wrap:wrap;margin-top:7px}
-
-.blocks .more{margin-top:7px;border-top:1px solid var(--line);padding-top:6px}
-.blocks .more>summary{list-style:none;cursor:pointer;font-size:12px;color:var(--ink-3);padding:3px 0}
+.blk .body .tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
+.blocks .more{margin-top:9px;border-top:1px solid var(--line);padding-top:8px}
+.blocks .more>summary{list-style:none;cursor:pointer;font-size:12.5px;color:var(--ink-3);padding:3px 0}
 .blocks .more>summary::-webkit-details-marker{display:none}
-.blocks .more>summary:hover{color:var(--ink)}
+.blocks .more>summary:hover{color:var(--acc)}
 .blocks .more>summary::before{content:"+ "}
 .blocks .more[open]>summary::before{content:"− "}
+.railacts{display:flex;flex-direction:column;gap:7px;align-items:flex-start}
+
+/* строка документа */
+.docbar{display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;
+  padding:18px 0 0}
+.docbar .which{display:flex;gap:7px;flex-wrap:wrap}
+.docbar .tab{padding:7px 16px;margin:0}
+.docbar .scr-act{padding:0}
 
 /* лист предпросмотра: формат A4 и поля документа */
 .preview{background:none;border:0;border-radius:0;box-shadow:none;overflow:visible;width:100%;
   display:flex;flex-direction:column;align-items:center;gap:9px}
 .preview .ph{display:flex;align-items:baseline;gap:10px;padding:0;border-bottom:0;
   width:var(--sheet-w);max-width:100%}
-.preview .ph h3{font-size:15px;font-weight:600}
+.preview .ph h3{font-size:16px;font-weight:600}
 .preview .ph .m{margin-left:auto}
 .paper{width:var(--sheet-w);max-width:100%;min-height:1123px;padding:76px 57px 76px 113px;
-  max-height:none;overflow:visible;background:#fff;border:1px solid var(--line-2);border-radius:2px;
-  font-family:"Times New Roman",Times,serif;font-size:15px;line-height:1.5;color:#000}
+  max-height:none;overflow:visible;background:#fff;border:1px solid var(--line);border-radius:6px;
+  box-shadow:var(--shadow);
+  font-family:"Times New Roman",Times,serif;font-size:15px;line-height:1.5;color:#161616}
 .paper p{margin:0;text-align:justify;text-indent:1.25em;hyphens:auto}
 .paper p.center{text-align:center;text-indent:0}
 .paper p.right{text-align:right;text-indent:0}
 .paper p.left{text-align:left;text-indent:0}
 .paper p.b{font-weight:700}
-.paper .miss{color:var(--acc);border-bottom:1px solid var(--acc);white-space:nowrap;
-  font-family:inherit;font-size:inherit;background:none;padding:0}
+.paper .miss{background:var(--acc-wash);color:var(--acc);border-radius:3px;padding:0 5px;
+  font-family:Onest,system-ui,sans-serif;font-size:11.5px;white-space:nowrap}
 .paper .dt{width:100%;border-collapse:collapse;font-size:.8em;margin:.5em 0;text-indent:0}
-.paper .dt th,.paper .dt td{border:1px solid #666;padding:3px 5px;vertical-align:top}
-.paper .dt th{font-weight:700;text-align:center}
+.paper .dt th,.paper .dt td{border:1px solid #9a9a9a;padding:3px 5px;vertical-align:top;background:none}
+.paper .dt th{font-weight:700;text-align:center;background:#F4F1EC}
 .paper .dt .left{text-align:left}.paper .dt .right{text-align:right}.paper .dt .center{text-align:center}
 .paper .dt tr.tot td{font-weight:700}
 .paper .dnote{font-size:.78em;font-style:italic;text-indent:0;color:#555}
 
-/* замечания — строками под листом */
-.check{width:var(--sheet-w);max-width:100%;background:var(--pn);border:1px solid var(--line);
-  border-radius:var(--r);padding:14px 16px}
-.check h4{font-size:14px;color:var(--ink);font-weight:600;margin-bottom:5px;
-  font-family:Charter,"Iowan Old Style",Georgia,serif}
+/* замечания — под листом */
+.check{width:var(--sheet-w);max-width:100%;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r);box-shadow:var(--shadow);padding:16px 18px}
+.check h4{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);font-weight:600;
+  margin-bottom:6px}
 .check .note.warn h4{color:var(--acc)}
-.check ul{margin:5px 0 0;padding:0;list-style:none}
-.check li{font-size:12.5px;color:var(--ink-2);margin:0;line-height:1.5;padding:3px 0 3px 14px;
-  position:relative}
-.check li::before{content:"—";position:absolute;left:0;color:var(--ink-4)}
-.check .note.warn li::before{color:var(--acc)}
+.check ul{margin:6px 0 0;padding-left:18px;list-style:disc}
+.check li{font-size:13px;color:var(--ink-2);margin:0 0 5px;line-height:1.45;padding:0;position:static}
+.check li::before{content:none}
 
 /* ---------- модальные окна ---------- */
-.modal{position:fixed;inset:0;z-index:60;background:rgba(17,17,17,.28);
-  display:flex;align-items:flex-start;justify-content:center;padding:6vh 18px;overflow:auto}
-.modal .box{background:var(--pn);border:1px solid var(--line-2);border-radius:8px;width:100%;max-width:660px;
-  box-shadow:none;padding:20px 22px 16px}
+.modal{position:fixed;inset:0;z-index:60;background:rgba(43,45,49,.42);
+  display:flex;align-items:flex-start;justify-content:center;padding:5vh 18px;overflow:auto}
+.modal .box{background:var(--surface);border:0;border-radius:var(--r);width:100%;max-width:680px;
+  box-shadow:0 24px 60px -20px rgba(43,45,49,.5);padding:22px 24px 18px;animation:pop .18s ease}
 .modal .box.wide{max-width:1000px}
-.modal h3{font-size:19px;font-weight:600;margin-bottom:5px}
-.modal .lead{font-size:12.5px;color:var(--ink-2);margin:0 0 14px;line-height:1.5}
+.modal h3{font-size:19px;font-weight:600;margin-bottom:3px;letter-spacing:-.02em}
+.modal .lead{font-size:13px;color:var(--ink-2);margin:0 0 16px;line-height:1.5}
 .modal .foot{display:flex;gap:8px;justify-content:flex-end;align-items:center;flex-wrap:wrap;
-  border-top:1px solid var(--line);padding-top:12px;margin-top:16px}
+  border-top:1px solid var(--line);padding-top:14px;margin-top:18px}
 .modal .foot .left{margin-right:auto}
 
-.vars{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px}
-.vars h4{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--ink);margin-bottom:5px}
-.vars button{display:block;width:100%;text-align:left;border:0;background:none;padding:2px 0;
-  font-size:12px;color:var(--ink-2);cursor:pointer}
-.vars button:hover{color:var(--acc)}
+.vars{display:grid;grid-template-columns:repeat(auto-fill,minmax(205px,1fr));gap:16px}
+.vars h4{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-3);margin-bottom:6px}
+.vars button{display:block;width:100%;text-align:left;border:0;background:none;padding:4px 6px;
+  border-radius:6px;font-size:12.5px;color:var(--ink-2);cursor:pointer}
+.vars button:hover{background:var(--acc-wash);color:var(--acc)}
 .vars code{font-size:11px;color:var(--ink-3);display:block;font-family:inherit}
 
-.versions .v{display:flex;align-items:baseline;gap:12px;padding:9px 0;border:0;
-  border-bottom:1px solid var(--line);margin:0;background:none;flex-wrap:wrap;
-  font-size:12.5px;font-weight:400}
-.versions .v:first-of-type{border-top:1px solid var(--line)}
-.versions .v b{font-size:12.5px;font-weight:600}
+.versions .v{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--line);
+  border-radius:var(--r-sm);margin-bottom:8px;background:var(--surface);flex-wrap:wrap;
+  font-size:13.5px;font-weight:400}
+.versions .v b{font-size:13.5px;font-weight:600}
 .versions .v .m{flex:1;min-width:120px}
 .diff{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.5;
-  background:none;border:1px solid var(--line);border-radius:0;padding:11px;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);padding:12px;
   max-height:52vh;overflow:auto;white-space:pre-wrap;word-break:break-word}
-.diff .add{color:var(--ink);display:block}
-.diff .add::before{content:"+ ";color:var(--ink-4)}
-.diff .del{color:var(--acc);display:block;text-decoration:line-through}
-.diff .del::before{content:"− ";color:var(--acc);text-decoration:none;display:inline-block}
-.diff .same{color:var(--ink-4);display:block}
-.diff .same::before{content:"  "}
+.diff .add{background:var(--olive-wash);color:var(--olive);display:block}
+.diff .add::before{content:none}
+.diff .del{background:var(--acc-wash);color:var(--acc);display:block;text-decoration:line-through}
+.diff .del::before{content:none}
+.diff .same{color:var(--ink-3);display:block}
+.diff .same::before{content:none}
 
 /* ---------- листы для печати ---------- */
-.sheets{background:#DAD4C9;border-radius:var(--r);padding:16px;border-radius:0;max-height:calc(100vh - 250px);
+.sheets{background:#6B6762;padding:18px;border-radius:var(--r);max-height:calc(100vh - 250px);
   overflow:auto;display:flex;flex-direction:column;align-items:center;gap:14px}
-.sheet{width:210mm;min-height:297mm;background:#fff;border:1px solid var(--line-2);box-shadow:none;
-  padding:20mm 15mm 20mm 30mm;position:relative;flex:none;
+.sheet{width:210mm;min-height:297mm;background:#fff;box-shadow:0 6px 20px -12px rgba(0,0,0,.6);
+  border:0;padding:20mm 15mm 20mm 30mm;position:relative;flex:none;
   font-family:"Times New Roman",Times,serif;font-size:14pt;line-height:1.5;color:#000;
   transform:scale(var(--zoom,1));transform-origin:top center}
 .sheetbody p,.docmeasure p{margin:0;text-align:justify;text-indent:1.25em}
@@ -391,9 +368,9 @@ tr.click{cursor:pointer}
 /* Таблицы документа. Метрики листа и контейнера для замера описаны одним
    правилом — разъедутся они, и раскладка по страницам поедет вместе с ними. */
 .sheetbody .dt,.docmeasure .dt{width:100%;border-collapse:collapse;font-size:11pt;
-  margin:.4em 0;text-indent:0;table-layout:fixed}
+  margin:.4em 0;text-indent:0;table-layout:fixed;background:none}
 .sheetbody .dt th,.docmeasure .dt th{border:1px solid #000;padding:2pt 4pt;font-weight:700;
-  text-align:center;vertical-align:top;word-wrap:break-word}
+  text-align:center;vertical-align:top;word-wrap:break-word;background:none;color:#000}
 .sheetbody .dt td,.docmeasure .dt td{border:1px solid #000;padding:2pt 4pt;
   vertical-align:top;word-wrap:break-word}
 .sheetbody .dt .left,.docmeasure .dt .left{text-align:left}
@@ -403,7 +380,6 @@ tr.click{cursor:pointer}
 .sheetbody .dnote,.docmeasure .dnote{font-size:10pt;font-style:italic;text-indent:0;margin:.2em 0 .6em}
 .docmeasure .mi{margin:0;padding:0}
 .sheetnum{position:absolute;left:0;right:0;bottom:9mm;text-align:center;font-size:11pt;color:#444}
-/* Контейнер для замера высот: те же метрики, но вне потока и вне глаз. */
 .docmeasure{position:absolute;left:-10000px;top:0;visibility:hidden;
   font-family:"Times New Roman",Times,serif;font-size:14pt;line-height:1.5}
 
@@ -415,37 +391,39 @@ tr.click{cursor:pointer}
   body.printmode>#modal-root{display:block!important}
   body.printmode .modal{display:block!important;position:static;background:none;padding:0;overflow:visible}
   body.printmode .modal .box{box-shadow:none;border:0;padding:0;max-width:none;background:#fff;
-    overflow:visible}
+    overflow:visible;animation:none}
   body.printmode .modal .box>*:not(.sheets){display:none!important}
-  body.printmode .sheets{background:#fff;padding:0;max-height:none;overflow:visible;display:block}
-  body.printmode .sheet{border:0;margin:0!important;transform:none!important;break-after:page}
+  body.printmode .sheets{background:#fff;padding:0;max-height:none;overflow:visible;display:block;border-radius:0}
+  body.printmode .sheet{box-shadow:none;margin:0!important;transform:none!important;break-after:page}
   body.printmode .sheet:last-child{break-after:auto}
 }
 
 /* ---------- узкие экраны ---------- */
 @media (max-width:1060px){
   .builder{grid-template-columns:1fr}
-  .bcol-form{position:static;max-height:none;border-right:0;border-bottom:1px solid var(--line);
-    padding:20px 0 18px}
-  .bcol-paper{padding:20px 0 0}
+  .bcol-form{position:static;max-height:none}
+  .bcol-paper{padding:12px 0 0}
 }
-@media (max-width:860px){
+@media (max-width:880px){
+  .scr-top h1,.reg-top h1{font-size:24px}
+  .facts dd{font-size:19px}
+  .hero{padding:20px 18px}
   .paper{padding:40px 24px}
   .preview .ph,.check,.paper{width:100%}
 }
 @media (max-width:640px){
   .page{padding:0 14px}
   .modal{padding:0}
-  .modal .box{border:0;min-height:100vh;padding:16px 14px}
+  .modal .box{border-radius:0;min-height:100vh;padding:18px 15px}
   table,thead,tbody,th,td,tr{display:block}
   thead{display:none}
   td{border:0;padding:2px 0}
-  tbody tr{border-bottom:1px solid var(--line);padding:11px 0}
+  tbody tr{border-bottom:1px solid var(--line);padding:12px 16px}
   tbody tr:hover td{background:none}
   td.r{text-align:left}
-  td[data-l]::before{content:attr(data-l) ": ";color:var(--ink-3)}
-  .rowact{justify-content:flex-start;margin-top:5px}
-  .sheets{padding:6px;max-height:none}
+  td[data-l]::before{content:attr(data-l) ": ";color:var(--ink-3);font-size:12px}
+  .rowact{justify-content:flex-start;margin-top:6px}
+  .sheets{padding:8px;max-height:none}
 }
 </style>
 </head>

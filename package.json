@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
+    "font": "node tools/fetch-font.mjs",
     "test": "node test/run.mjs"
   },
   "dependencies": {

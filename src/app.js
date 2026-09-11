@@ -207,6 +207,7 @@
     ].join(' · ');
 
     return `<div class="reg">
+      <div class="hero">
       <div class="reg-top">
         <div>
           <h1>Мои дела</h1>
@@ -216,6 +217,7 @@
           <button class="btn" data-act="import-form">Загрузить печатную форму</button>
           <button class="btn pri" data-act="new-case">Новое дело</button>
         </div>
+      </div>
       </div>
       <input class="find" id="find" type="search" value="${attr(find)}"
         placeholder="Номер дела или фамилия должника" autocomplete="off">
@@ -290,6 +292,7 @@
   /** Пустой экран показывается ровно один раз — до первого дела. */
   function casesEmpty() {
     return `<div class="reg">
+      <div class="hero">
       <div class="reg-top"><div><h1>Мои дела</h1>
         <p class="m">Пока ни одного дела.</p></div></div>
       <button class="drop" data-act="import-form">
@@ -316,7 +319,7 @@
     const s = caseStats(c);
     const pct = s.deals ? Math.round(s.ready / s.deals * 100) : 0;
 
-    const head = `<div class="scr">
+    const head = `<div class="scr"><div class="hero">
         <div class="scr-top">
           <div>
             <h1>${esc(S.partyName(debtor) || 'Должник не указан')}</h1>
@@ -342,7 +345,7 @@
               ' <button class="linkbtn" data-act="drop-okb">убрать</button>'
             : 'не загружен <button class="linkbtn" data-act="import-okb">загрузить</button>'}</dd></div>
         </dl>
-      </div>
+      </div></div>
 
       <div class="tabs">
         ${tab('case', 'req', 'Дело')}
@@ -588,7 +591,7 @@
     const grounds = S.groundNames(d);
 
     const head = started
-      ? `<div class="scr">
+      ? `<div class="scr"><div class="hero">
         <div class="scr-top">
           <div>
             <h1>${esc(S.dealTypeName(d))}${d.number ? ' № ' + esc(d.number) : ''}</h1>
@@ -611,8 +614,8 @@
           <div class="wide"><dt>Основание оспаривания</dt>
             <dd>${esc(grounds.map((g) => g.name).join('; ')) || '<span class="bad">не выбрано</span>'}</dd></div>
         </dl>
-      </div>`
-      : `<div class="scr">
+      </div></div>`
+      : `<div class="scr"><div class="hero">
         <div class="scr-top">
           <div>
             <h1>Новая сделка</h1>
@@ -623,7 +626,7 @@
             <button class="btn danger" data-act="del-deal">Удалить сделку</button>
           </div>
         </div>
-      </div>`;
+      </div></div>`;
 
     const tail = `
       <div class="tabs">
@@ -1169,7 +1172,7 @@
       </div>
     </div>`).join('');
 
-    return `<div class="scr">
+    return `<div class="scr"><div class="hero">
         <div class="scr-top">
           <div>
             <h1>Библиотека блоков</h1>
@@ -1178,7 +1181,7 @@
           </div>
           <div class="scr-act"><button class="btn pri" data-act="new-lib">Новый блок</button></div>
         </div>
-      </div>
+      </div></div>
       <div class="card">
         <p class="m">Изменения применяются ко всем новым заявлениям. Уже собранные заявления,
           в которых текст блока правился вручную, остаются как есть.</p>
