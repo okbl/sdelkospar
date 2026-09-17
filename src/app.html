@@ -309,6 +309,24 @@ tr.click{cursor:pointer}
 .paper .dt tr.tot td{font-weight:700}
 .paper .dnote{font-size:.78em;font-style:italic;text-indent:0;color:#555}
 
+/* ---------- свободное редактирование ---------- */
+.freebar{width:var(--sheet-w);max-width:100%;display:flex;align-items:center;gap:7px;flex-wrap:wrap;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow);padding:9px 12px}
+.freebar .lbl{margin:0 3px 0 0;font-size:12.5px;font-weight:600;color:var(--ink-3)}
+.fb{border:1px solid var(--line-2);background:var(--surface);color:var(--ink-2);border-radius:999px;
+  padding:4px 12px;font:inherit;font-size:12.5px;cursor:pointer;white-space:nowrap}
+.fb:hover{border-color:var(--ink-3);color:var(--ink)}
+.fb.on{background:var(--acc);border-color:var(--acc);color:#FBF9F6;font-weight:600}
+.freebar .m{margin-left:auto}
+.btn.on{background:var(--acc);border-color:var(--acc);color:#FBF9F6;font-weight:600}
+.docbar .btn.on:hover{background:var(--acc-2);border-color:var(--acc-2)}
+.paper.edit{outline:none;caret-color:var(--acc)}
+.paper.edit:focus{box-shadow:var(--shadow),0 0 0 3px var(--acc-wash)}
+.paper.edit p:hover{background:#FBF7F2}
+.dtwrap{margin:.5em 0}
+.dtwrap:hover{outline:1px dashed var(--line-2);outline-offset:3px}
+
 /* замечания — под листом */
 .check{width:var(--sheet-w);max-width:100%;background:var(--surface);border:1px solid var(--line);
   border-radius:var(--r);box-shadow:var(--shadow);padding:16px 18px}

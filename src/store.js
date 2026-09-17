@@ -150,9 +150,34 @@
   }
 
   /** Документ по сделке: заявление, ходатайство или предложение. */
+  /**
+   * Документ сделки.
+   *
+   * free — режим свободного редактирования. Пока он null, текст каждый раз
+   * собирается из блоков и переменных. Как только человек включает свободное
+   * редактирование, текущий текст замораживается в free.items, и дальше
+   * правится он сам: блоки и данные дела его больше не трогают. Это цена
+   * свободы, и приложение говорит о ней вслух, а не выясняется потом.
+   */
   function newStatement(kind) {
-    return { id: uid(), kind: kind || 'statement', status: 'draft', blocks: [], versions: [], seq: 0 };
+    return { id: uid(), kind: kind || 'statement', status: 'draft', blocks: [], versions: [], seq: 0, free: null };
   }
+
+  const isFree = (st) => !!(st && st.free && Array.isArray(st.free.items));
+
+  /** Заморозить собранный текст и перейти к свободной правке. */
+  function enterFree(db, kase, deal, st) {
+    if (isFree(st)) return st.free;
+    st.free = { items: buildDocument(db, kase, deal, { mark: false, statement: st }), at: now() };
+    return st.free;
+  }
+
+  /** Вернуться к сборке из блоков. Свободный текст при этом теряется. */
+  function exitFree(st) {
+    st.free = null;
+  }
+
+  const newPara = (align) => ({ kind: 'p', text: '', align: align || '', bold: false });
 
   const kindOf = (st) => D.byId(D.DOC_KINDS, (st && st.kind) || 'statement') || D.DOC_KINDS[0];
   const findStatement = (deal, id) => (deal.statements || []).find((x) => x.id === id) || null;
@@ -952,6 +977,12 @@
   function buildDocument(db, kase, deal, opts) {
     const mark = !!(opts && opts.mark);
     const st = (opts && opts.statement) || mainStatement(deal);
+
+    // В свободном режиме собирать нечего: текст уже написан руками. Через эту
+    // же ветку проходят и DOCX, и листы для печати, и версии — ни один из них
+    // о режиме не знает и знать не должен.
+    if (isFree(st)) return st.free.items.map((it) => Object.assign({}, it));
+
     const vars = context(db, kase, deal, st.kind);
     const out = [];
 
@@ -1007,6 +1038,18 @@
     const debtor = debtorOf(kase);
     const cp = counterpartyOf(kase, deal);
     const req = (cond, field, where) => { if (!cond) errors.push({ field, where }); };
+
+    // Свободный текст проверять по анкете бессмысленно: он больше не следует
+    // за данными дела, и «не заполнено» относилось бы к позапрошлой версии.
+    // Остаётся одно, что можно сказать честно: документ непустой.
+    if (isFree(st)) {
+      const empty = !st.free.items.some((it) => it.kind !== 'p' || String(it.text || '').trim());
+      if (empty) errors.push({ field: 'Текст документа', where: 'builder' });
+      return {
+        errors, warnings, missingVars: [], free: true,
+        ok: errors.length === 0
+      };
+    }
 
     req(kase.number, 'Номер дела', 'case');
     req(kase.court, 'Наименование суда', 'case');
@@ -1081,7 +1124,7 @@
     const missing = new Set();
     for (const b of blocks) if (b.enabled) for (const n of missingVars(b.template, vars)) missing.add(n);
 
-    return { errors, warnings, missingVars: [...missing], ok: errors.length === 0 };
+    return { errors, warnings, missingVars: [...missing], free: false, ok: errors.length === 0 };
   }
 
   /* ================= версии ================= */
@@ -1169,6 +1212,7 @@
     newBank, included, bankTitle, accountsTotal, accountsBanksText, accountsAttachments,
     applyFns, applyStatement,
     library, statementBlocks, buildDocument, documentText, autoTable,
+    isFree, enterFree, exitFree, newPara,
     validate, saveVersion, restoreVersion, diffLines, cloneDeal,
     MISS_A, MISS_B
   };

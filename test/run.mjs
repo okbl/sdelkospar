@@ -1042,6 +1042,77 @@ group('Миграция старого дела');
   eq('справка запомнена', added.source, 'statement');
 }
 
+/* ================= свободное редактирование ================= */
+/*
+ * Проверяем то, ради чего режим и сделан: замороженный текст проходит теми же
+ * путями, что и собранный, — в DOCX, на листы, в версии, — и ни один из них
+ * о режиме не знает. И то, чем за это платят: данные дела текст больше не
+ * трогают.
+ */
+{
+  group('Свободное редактирование');
+
+  const { db, c, d } = sample();
+  const st = S.mainStatement(d);
+
+  ok('по умолчанию режим выключен', !S.isFree(st));
+
+  const before = S.documentText(db, c, d, st);
+  S.enterFree(db, c, d, st);
+  ok('режим включился', S.isFree(st));
+  eq('текст при заморозке не изменился', S.documentText(db, c, d, st), before);
+
+  // Правка идёт прямо по абзацам.
+  const items = st.free.items;
+  const i = items.findIndex((x) => x.kind === 'p' && x.text.includes('Арбитражный суд'));
+  ok('абзац шапки нашёлся', i >= 0);
+  items[i].text = 'В Арбитражный суд города Москвы — вписано руками';
+  items.splice(i + 1, 0, { kind: 'p', text: 'Дописанный абзац.', align: 'center', bold: true });
+
+  const after = S.documentText(db, c, d, st);
+  ok('правка попала в текст документа', after.includes('вписано руками'));
+  ok('дописанный абзац тоже', after.includes('Дописанный абзац.'));
+
+  // DOCX и листы строятся из того же массива, что и предпросмотр.
+  const paras = S.buildDocument(db, c, d, { statement: st });
+  eq('абзацев столько же, сколько в модели', paras.length, items.length);
+  const added = paras.find((p) => p.text === 'Дописанный абзац.');
+  ok('выравнивание и полужирность дошли до выгрузки', added.align === 'center' && added.bold === true);
+  const bytes = X.docxBytes(paras, 'Заявление');
+  ok('DOCX собирается', bytes.length > 2000);
+
+  // Цена свободы: данные дела текст больше не меняют.
+  c.court = 'Арбитражный суд Свердловской области';
+  ok('смена суда текст не тронула', !S.documentText(db, c, d, st).includes('Свердловской'));
+
+  // Метки незаполненных переменных в замороженный текст не попадают:
+  // подстановка уже произошла.
+  const marked = S.buildDocument(db, c, d, { mark: true, statement: st });
+  ok('меток незаполненного нет', !marked.some((p) => p.kind === 'p' && p.text.includes(S.MISS_A)));
+
+  // Проверка перед выгрузкой в этом режиме говорит только о пустоте.
+  const v = S.validate(db, c, d, st);
+  ok('проверка отмечена как свободная', v.free === true);
+  eq('переменных не проверяем', v.missingVars.length, 0);
+  ok('непустой документ проходит', v.ok);
+
+  const saved = JSON.parse(JSON.stringify(st.free.items));
+  st.free.items = [{ kind: 'p', text: '   ', align: '', bold: false }];
+  ok('пустой документ не проходит', !S.validate(db, c, d, st).ok);
+  st.free.items = saved;
+
+  // Возврат к блокам собирает текст заново — с учётом новых данных дела.
+  S.exitFree(st);
+  ok('режим выключился', !S.isFree(st));
+  ok('текст снова следует за делом', S.documentText(db, c, d, st).includes('Свердловской'));
+  ok('ручных правок не осталось', !S.documentText(db, c, d, st).includes('вписано руками'));
+
+  // Старое дело без поля free открывается и не ломается.
+  const old = { id: 'x', kind: 'statement', status: 'draft', blocks: [], versions: [], seq: 0 };
+  const migrated = Object.assign(S.newStatement('statement'), old);
+  ok('у перенесённого документа режим выключен', !S.isFree(migrated));
+}
+
 /* ================= итог ================= */
 
 console.log('\n' + '='.repeat(60));

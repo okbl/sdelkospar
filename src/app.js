@@ -1021,11 +1021,13 @@
     const on = blocks.filter((b) => b.enabled).length;
     const versions = st.versions.length;
     const others = d.statements.filter((x) => x.id !== st.id);
+    const free = S.isFree(st);
 
     return `<div class="docbar">
         <span class="which">${others.map((x) => `<button class="tab" data-go="#/builder/${c.id}/${d.id}/${x.id}">${esc(S.kindOf(x).short)}</button>`).join('')}
           <button class="tab on">${esc(kind.short)}</button></span>
         <span class="scr-act">
+          <button class="btn${free ? ' on' : ''}" data-act="toggle-free">${free ? 'Выйти из свободной правки' : 'Свободное редактирование'}</button>
           <button class="btn" data-act="versions">Версии${versions ? ' · ' + versions : ''}</button>
           <button class="btn" data-act="preview-sheets">Листы и печать</button>
           <button class="btn pri" data-act="export-docx">Скачать DOCX</button>
@@ -1034,6 +1036,7 @@
 
       <div class="builder">
         <div class="bcol-form">
+          ${free ? freeRail(st) : `
           <div class="blocks">
             <div class="bh"><h3>Разделы</h3>
               <p class="m">включено ${on} из ${blocks.length}</p></div>
@@ -1050,14 +1053,15 @@
           <div class="railacts">
             <button class="linkbtn" data-act="reset-blocks">Собрать заново по основаниям</button>
             <button class="linkbtn" data-go="#/blocks">Библиотека блоков</button>
-          </div>
+          </div>`}
         </div>
 
         <div class="bcol-paper">
           <div class="preview">
             <div class="ph"><h3>${esc(kind.name)}</h3>
-              <span class="m">${esc(c.number || 'дело')} · ${esc(S.partyShort(S.debtorOf(c)) || 'должник')}</span></div>
-            <div class="paper" id="paper">${previewHtml(c, d, st)}</div>
+              <span class="m">${free ? 'свободная правка' : esc(c.number || 'дело') + ' · ' + esc(S.partyShort(S.debtorOf(c)) || 'должник')}</span></div>
+            ${free ? freeBar() : ''}
+            <div class="paper${free ? ' edit' : ''}" id="paper"${free ? ' contenteditable="true" spellcheck="true"' : ''}>${previewHtml(c, d, st)}</div>
           </div>
           <div class="check" id="check">${checkPanel(c, d, st)}</div>
         </div>
@@ -1095,6 +1099,7 @@
 
   /** Предпросмотр: незаполненные переменные подсвечены — сразу видно, чего не хватает. */
   function previewHtml(c, d, st) {
+    if (S.isFree(st)) return freeHtml(st);
     const paras = S.buildDocument(db, c, d, { mark: true, statement: st });
     if (!paras.length) return '<p class="left" style="color:#8A867F">Не включён ни один блок.</p>';
     return paras.map((p) => {
@@ -1104,6 +1109,131 @@
         .split(S.MISS_B).join('</span>');
       return `<p class="${p.align}${p.bold ? ' b' : ''}">${text || '&nbsp;'}</p>`;
     }).join('');
+  }
+
+  /* ================= свободное редактирование ================= */
+
+  /*
+   * Лист становится contenteditable, и текст правится прямо в нём: Enter
+   * делит абзац, Backspace в начале — склеивает, выделение можно выровнять
+   * или сделать полужирным. Таблицы по кредитному отчёту правке не поддаются
+   * (их строит отчёт, а не человек) и вынуты из-под редактирования целиком:
+   * удалить их можно, переписать — нет.
+   *
+   * Модель абзаца в приложении одна на всю программу: текст, выравнивание,
+   * полужирность целой строки. Инлайновой полужирности нет ни в DOCX-писателе,
+   * ни в раскладке листов, поэтому нет и здесь — иначе правка молча пропадала
+   * бы при выгрузке.
+   */
+  let freeTables = new Map();
+
+  function freeHtml(st) {
+    freeTables = new Map();
+    const items = st.free.items;
+    if (!items.length) return '<p class="left"><br></p>';
+    return items.map((p, i) => {
+      if (p.kind === 'table') {
+        const tid = 't' + i;
+        freeTables.set(tid, p);
+        return `<div class="dtwrap" data-tid="${tid}" contenteditable="false">${X.tableHtml(p)}</div>`;
+      }
+      return `<p class="${p.align}${p.bold ? ' b' : ''}">${esc(p.text) || '<br>'}</p>`;
+    }).join('');
+  }
+
+  /** Лист → модель. Читается ровно то, что видно, без разбора вложенной вёрстки. */
+  function freeRead(root) {
+    const out = [];
+    for (const el of [...root.children]) {
+      const tid = el.dataset && el.dataset.tid;
+      if (tid) { const t = freeTables.get(tid); if (t) out.push(t); continue; }
+      const cls = el.className || '';
+      const align = ['center', 'right', 'left'].find((a) => cls.split(/\s+/).includes(a)) || '';
+      out.push({
+        kind: 'p',
+        text: (el.innerText || '').replace(/\u00A0/g, ' ').replace(/\n+$/, ''),
+        align: align,
+        bold: cls.split(/\s+/).includes('b')
+      });
+    }
+    return out.length ? out : [S.newPara()];
+  }
+
+  /** Абзацы, которых касается выделение. */
+  function freeSelected(root) {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return [];
+    const range = sel.getRangeAt(0);
+    return [...root.children].filter((el) => !(el.dataset && el.dataset.tid) &&
+      range.intersectsNode(el));
+  }
+
+  function freeApply(what, value) {
+    const root = $('#paper');
+    const st = currentDoc();
+    if (!root || !st || !S.isFree(st)) return;
+    const picked = freeSelected(root);
+    if (!picked.length) return;
+
+    if (what === 'align') {
+      for (const el of picked) {
+        el.classList.remove('center', 'right', 'left');
+        if (value) el.classList.add(value);
+      }
+    } else {
+      // Полужирность — свойство всего абзаца, а не выделенных слов.
+      const on = !picked.every((el) => el.classList.contains('b'));
+      for (const el of picked) el.classList.toggle('b', on);
+    }
+    st.free.items = freeRead(root);
+    save();
+    refreshFreeBar();
+  }
+
+  /** Кнопки панели подсвечиваются по абзацу, в котором стоит каретка. */
+  function refreshFreeBar() {
+    const bar = $('#freebar'), root = $('#paper');
+    if (!bar || !root) return;
+    const picked = freeSelected(root);
+    const has = (c) => picked.length > 0 && picked.every((el) => el.classList.contains(c));
+    const plain = picked.length > 0 && picked.every((el) =>
+      !el.classList.contains('center') && !el.classList.contains('right') && !el.classList.contains('left'));
+    for (const b of $$('[data-free]', bar)) {
+      const v = b.dataset.free;
+      const on = v === 'bold' ? has('b') : v === '' ? plain : has(v);
+      b.classList.toggle('on', on);
+    }
+  }
+
+  /** Левая колонка в свободном режиме: блоков больше нет, есть объяснение. */
+  function freeRail(st) {
+    const items = st.free.items;
+    const words = items.filter((i) => i.kind === 'p')
+      .reduce((n, i) => n + (String(i.text).match(/\S+/g) || []).length, 0);
+    return `<div class="blocks">
+        <div class="bh"><h3>Свободная правка</h3>
+          <p class="m">${items.filter((i) => i.kind === 'p').length} ${D.plural(items.filter((i) => i.kind === 'p').length, 'абзац', 'абзаца', 'абзацев')}, ${words} ${D.plural(words, 'слово', 'слова', 'слов')}</p></div>
+      </div>
+      <div class="note calm" style="margin:0">Текст заморожен ${esc(D.dateShort((st.free.at || '').slice(0, 10)))} и правится руками.
+        Разделы и данные дела его больше не меняют: поправите суд или сумму — в этом документе
+        останется старое значение.</div>
+      <div class="railacts">
+        <button class="linkbtn" data-act="free-reassemble">Пересобрать из разделов заново</button>
+        <button class="linkbtn" data-act="toggle-free">Вернуться к разделам</button>
+      </div>`;
+  }
+
+  function freeBar() {
+    const b = (v, name, title) =>
+      `<button class="fb" data-free="${v}" title="${attr(title)}">${name}</button>`;
+    return `<div class="freebar" id="freebar">
+      <span class="lbl">Абзац</span>
+      ${b('', 'По ширине', 'Выключка по формату — как в основном тексте заявления')}
+      ${b('center', 'По центру', 'Заголовки и «ПРОШУ»')}
+      ${b('right', 'Справа', 'Шапка документа')}
+      ${b('bold', 'Полужирный', 'Полужирным становится весь абзац: в DOCX и на листах другого нет')}
+      <span class="m">Enter делит абзац, Backspace в начале — склеивает</span>
+    </div>`;
   }
 
   function checkPanel(c, d, st) {
@@ -1150,7 +1280,9 @@
     const c = currentCase(), d = currentDeal(), st = currentDoc();
     if (!c || !d || !st) return;
     const paper = $('#paper');
-    if (paper) paper.innerHTML = previewHtml(c, d, st);
+    // В свободном режиме лист не пересобирается: там текст, набранный руками,
+    // и перерисовка стёрла бы его вместе с кареткой.
+    if (paper && !S.isFree(st)) paper.innerHTML = previewHtml(c, d, st);
     const check = $('#check');
     if (check) check.innerHTML = checkPanel(c, d, st);
   }
@@ -1534,6 +1666,42 @@
     // Первый вопрос по новой сделке — по какому пункту её оспаривать.
     tabs.deal = 'ground';
     go('#/deal/' + c.id + '/' + d.id);
+  }
+
+  function toggleFree() {
+    const c = currentCase(), d = currentDeal(), st = currentDoc();
+    if (!c || !d || !st) return;
+
+    if (S.isFree(st)) {
+      confirmBox('Вернуться к сборке из разделов? Текст, написанный руками, будет потерян — ' +
+        'документ соберётся заново из блоков и данных дела. Сохраните версию, если правки нужны.', () => {
+        S.exitFree(st);
+        saveNow(); render();
+      });
+      return;
+    }
+
+    // Снимок перед заморозкой: вернуться к собранному тексту потом будет
+    // неоткуда, а сравнить — единственный способ увидеть, что наменяли.
+    S.saveVersion(db, c, d, st, 'перед свободной правкой');
+    S.enterFree(db, c, d, st);
+    saveNow();
+    render();
+    note('Текст заморожен и теперь правится прямо в листе. Разделы и данные дела его больше ' +
+      'не меняют: поправите суд или сумму — здесь останется старое значение. ' +
+      'Снимок собранного текста сохранён в версиях.');
+  }
+
+  function reassembleFree() {
+    const c = currentCase(), d = currentDeal(), st = currentDoc();
+    if (!c || !d || !st || !S.isFree(st)) return;
+    confirmBox('Собрать текст заново из разделов и данных дела? Всё, что написано руками, ' +
+      'будет заменено. Свободная правка останется включённой.', () => {
+      S.saveVersion(db, c, d, st, 'перед пересборкой');
+      S.exitFree(st);
+      S.enterFree(db, c, d, st);
+      saveNow(); render();
+    });
   }
 
   function saveVersion() {
@@ -1983,6 +2151,14 @@
       return;
     }
 
+    // Правка прямо в листе. Перерисовывать лист на каждую букву нельзя —
+    // уедет каретка, — поэтому здесь только чтение разметки в модель.
+    if (el.id === 'paper' && el.isContentEditable) {
+      const st = currentDoc();
+      if (st && S.isFree(st)) { st.free.items = freeRead(el); save(); }
+      return;
+    }
+
     if (el.dataset.blocktext) {
       const d = currentDeal();
       if (!d) return;
@@ -2056,6 +2232,13 @@
   });
 
   document.addEventListener('click', (e) => {
+    const fb = e.target.closest('[data-free]');
+    if (fb) {
+      const v = fb.dataset.free;
+      freeApply(v === 'bold' ? 'bold' : 'align', v === 'bold' ? null : v);
+      return;
+    }
+
     const nav = e.target.closest('[data-go]');
     if (nav) { go(nav.dataset.go); return; }
 
@@ -2088,6 +2271,8 @@
       case 'modal-close': closeModal(); break;
       case 'new-case': newCase(); break;
       case 'import-form': importPrintForm(); break;
+      case 'toggle-free': toggleFree(); break;
+      case 'free-reassemble': reassembleFree(); break;
       case 'import-okb': importOkb(); break;
       case 'import-fns': importFns(); break;
       case 'import-balance': importBalance(id); break;
@@ -2293,6 +2478,13 @@
   /* ---------- перетаскивание блоков ---------- */
 
   let dragId = null;
+
+  // Подсветка кнопок панели идёт за кареткой: где стоит курсор, то и отмечено.
+  document.addEventListener('selectionchange', () => {
+    if (route.name !== 'builder') return;
+    const st = currentDoc();
+    if (st && S.isFree(st)) refreshFreeBar();
+  });
 
   document.addEventListener('dragstart', (e) => {
     const blk = e.target.closest ? e.target.closest('.blk') : null;
