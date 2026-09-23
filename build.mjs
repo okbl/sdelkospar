@@ -60,7 +60,17 @@ const core = exposeExports(
   fs.readFileSync(path.join(pdfjs, 'pdf.min.mjs'), 'utf8'),
   'pdfjsLib', ['getDocument', 'GlobalWorkerOptions', 'version', 'OPS']);
 
-const html = src('app.html')
+/*
+ * Страница собирается из общего набора модулей. Рабочее приложение и прототип
+ * пути по шагам отличаются только разметкой и своим сценарием интерфейса:
+ * движок, данные и оформление у них одни, чтобы прототип показывал настоящие
+ * документы, а не картинки.
+ */
+const appHtml = src('app.html');
+const appStyle = appHtml.match(/<style>([\s\S]*?)<\/style>/)[1];
+
+const page = (file, script) => src(file)
+  .replace('/* @@APPSTYLE@@ */', () => appStyle)
   .replace('/* @@FONT@@ */', () => fs.readFileSync(fontPath, 'utf8'))
   .replace('<!-- @@PDFJS_WORKER@@ -->', () => `<script type="module">${safe(worker)}</script>`)
   .replace('<!-- @@PDFJS@@ -->', () => `<script type="module">${safe(core)}</script>`)
@@ -71,11 +81,16 @@ const html = src('app.html')
   .replace('<!-- @@IMPORT@@ -->', () => `<script>${safe(src('import.js'))}</script>`)
   .replace('<!-- @@STORE@@ -->', () => `<script>${safe(src('store.js'))}</script>`)
   .replace('<!-- @@DOC@@ -->', () => `<script>${safe(src('doc.js'))}</script>`)
-  .replace('<!-- @@APP@@ -->', () => `<script>${safe(src('app.js'))}</script>`);
+  .replace('<!-- @@APP@@ -->', () => `<script>${safe(src(script))}</script>`);
 
-for (const marker of ['@@FONT@@', '@@PDFJS@@', '@@PDFJS_WORKER@@', '@@PARSER@@',
-  '@@DATA@@', '@@OKB@@', '@@ACCOUNTS@@', '@@IMPORT@@', '@@STORE@@', '@@DOC@@', '@@APP@@']) {
-  if (html.includes(marker)) throw new Error(`метка ${marker} не подставлена`);
+const html = page('app.html', 'app.js');
+const proto = page('proto.html', 'proto.js');
+
+for (const [name, text] of [['app.html', html], ['proto.html', proto]]) {
+  for (const marker of ['@@APPSTYLE@@', '@@FONT@@', '@@PDFJS@@', '@@PDFJS_WORKER@@', '@@PARSER@@',
+    '@@DATA@@', '@@OKB@@', '@@ACCOUNTS@@', '@@IMPORT@@', '@@STORE@@', '@@DOC@@', '@@APP@@']) {
+    if (text.includes(marker)) throw new Error(`${name}: метка ${marker} не подставлена`);
+  }
 }
 
 fs.mkdirSync(dist, { recursive: true });
@@ -84,6 +99,9 @@ fs.mkdirSync(dist, { recursive: true });
 // Второй файл с человеческим именем — чтобы открывать двойным кликом локально.
 const outputs = ['index.html', 'Оспаривание сделок.html'];
 for (const name of outputs) fs.writeFileSync(path.join(dist, name), html, 'utf8');
+// Прототип пути по шагам — отдельной страницей рядом, рабочее приложение не трогает.
+fs.writeFileSync(path.join(dist, 'proto.html'), proto, 'utf8');
+outputs.push('proto.html');
 
 console.log(`Готово: ${outputs.map((n) => 'dist/' + n).join(', ')}`);
 console.log(`Размер: ${(Buffer.byteLength(html) / 1024 / 1024).toFixed(2)} МБ`);
